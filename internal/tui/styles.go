@@ -2,16 +2,26 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Styles es un struct para mantener los estilos de la TUI.
+// Styles contiene las definiciones de estilo para la TUI.
 type Styles struct {
-	BorderColor lipgloss.Color
+	AppStyle    lipgloss.Style
 	InputField  lipgloss.Style
+	ErrorStyle  lipgloss.Style
 }
 
-// DefaultStyles retorna una configuración de estilos por defecto.
+// DefaultStyles devuelve un conjunto de estilos predeterminados.
 func DefaultStyles() Styles {
 	return Styles{
-		BorderColor: lipgloss.Color("#874BFD"),
-		InputField:  lipgloss.NewStyle().BorderForeground(lipgloss.Color("#874BFD")).BorderStyle(lipgloss.RoundedBorder()).Padding(1),
+		AppStyle: lipgloss.NewStyle().
+			Padding(1, 2).
+			Border(lipgloss.RoundedBorder(), true).
+			BorderForeground(lipgloss.Color("62")), // Un color verde/amarillo
+		InputField: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("240")), // Gris oscuro
+		ErrorStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).    // Rojo
+			Background(lipgloss.Color("235")). // Gris oscuro
+			Padding(0, 1),
 	}
 }

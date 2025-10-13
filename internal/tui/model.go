@@ -2,79 +2,120 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
+	"time"
 
-	"github.com/djS1km4/sikmacode/internal/llm"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/djS1km4/sikmacode/internal/agent" // Importar el paquete agent
+	"github.com/djS1km4/sikmacode/internal/config"
+	"github.com/djS1km4/sikmacode/internal/llm"
+	"github.com/djS1km4/sikmacode/internal/session"
 	"github.com/google/generative-ai-go/genai"
 )
 
-// completionMsg es el mensaje que se recibe cuando el LLM completa una respuesta.
-type completionMsg struct{
+// Define los mensajes para la comunicación asíncrona
+type completionMsg struct {
 	content string
 }
 
-// errorMsg es el mensaje para los errores que puedan ocurrir.
-type errorMsg struct{ err error }
+type errorMsg struct {
+	err error
+}
 
 func (e errorMsg) Error() string { return e.err.Error() }
 
-type Model struct {
-	viewport    viewport.Model
-	textarea    textarea.Model
-	messages    []*genai.Content
-	styles      Styles
-	apiKey      string
-	err         error
+// appModel representa el modelo principal de la aplicación TUI
+type appModel struct {
+	viewport     viewport.Model
+	textarea     textarea.Model
+	messages     []*genai.Content
+	styles       Styles
+	config       *config.Config
+	apiKey       string
+	sessionName  string
+	keyMap       KeyMap
+	isReady      bool
+	agent        *agent.Agent // Añadir campo para el agente
+	err          error
+	width, height int
 }
 
-func NewModel() Model {
+// NewAppModel inicializa un nuevo modelo de TUI
+func NewAppModel(sessionName string) *appModel {
 	styles := DefaultStyles()
 	ta := textarea.New()
 	ta.Placeholder = "Escribe tu mensaje aquí..."
 	ta.Focus()
-
 	ta.Prompt = "┃ "
-	ta.CharLimit = 0 // Sin límite de caracteres
+	ta.CharLimit = 0
 	ta.SetHeight(3)
-
 	ta.FocusedStyle.CursorLine = lipgloss.Style{}
 
-	vp := viewport.New(50, 5)
-	apiKey := os.Getenv("GEMINI_API_KEY")
-
-	if apiKey == "" {
-		vp.SetContent(`Bienvenido a Sikma Code!
-Error: La variable de entorno GEMINI_API_KEY no está configurada.`)
-	} else {
-		vp.SetContent(`Bienvenido a Sikma Code!
-API Key detectada. Escribe un mensaje para comenzar.`)
-	}
-
+	vp := viewport.New(0, 0) // El tamaño se establecerá en el primer WindowSizeMsg
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
-	return Model{
-		textarea: ta,
-		viewport: vp,
-		styles:   styles,
-		apiKey:   apiKey,
-		messages: make([]*genai.Content, 0),
+	// Cargar configuración
+	cfg, _ := config.LoadConfig() // Ignorar el error por ahora para simplificar
+	var apiKey string
+	if cfg != nil {
+		apiKey, _ = cfg.GetActiveAPIKey()
+	}
+
+	// Cargar sesión si se especifica un nombre
+	var messages []*genai.Content
+	if sessionName != "" {
+		loadedMessages, err := session.LoadSession(sessionName)
+		if err == nil {
+			messages = loadedMessages
+		}
+	} else {
+		sessionName = fmt.Sprintf("session-%d", time.Now().Unix())
+	}
+
+	var agentInstance *agent.Agent
+	if cfg != nil {
+		agentInstance = agent.NewAgent(cfg.Agent)
+	}
+
+	return &appModel{
+		textarea:    ta,
+		viewport:    vp,
+		styles:      styles,
+		config:      cfg,
+		apiKey:      apiKey,
+		sessionName: sessionName,
+		messages:    messages,
+		keyMap:      DefaultKeyMap(),
+		isReady:     false,
+		agent:       agentInstance,
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+// Init inicializa el modelo y devuelve comandos iniciales
+func (m *appModel) Init() tea.Cmd {
 	return textarea.Blink
 }
 
 // waitForCompletion es el comando que espera la respuesta del LLM.
-func (m Model) waitForCompletion(userInput string) tea.Cmd {
+func (m *appModel) waitForCompletion(userInput string) tea.Cmd {
 	return func() tea.Msg {
-		// El historial que se envía no incluye el mensaje actual del usuario.
-		response, err := llm.GenerateResponse(m.apiKey, m.messages, userInput)
+		if m.config == nil {
+			return errorMsg{fmt.Errorf("configuración no cargada")}
+		}
+		provider, ok := m.config.Providers[m.config.ActiveLLM]
+		if !ok {
+			return errorMsg{fmt.Errorf("proveedor de LLM activo no encontrado")}
+		}
+		modelName := provider.Model
+
+		// Construir y pasar el System Prompt
+		systemPrompt := m.agent.BuildSystemPrompt()
+
+		response, err := llm.GenerateResponse(m.apiKey, modelName, systemPrompt, m.messages, userInput)
 		if err != nil {
 			return errorMsg{err}
 		}
@@ -82,23 +123,53 @@ func (m Model) waitForCompletion(userInput string) tea.Cmd {
 	}
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update maneja los mensajes entrantes y actualiza el estado de la aplicación.
+func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
+		cmds  []tea.Cmd
 	)
 
-	m.textarea, tiCmd = m.textarea.Update(msg)
-	m.viewport, vpCmd = m.viewport.Update(msg)
-
 	switch msg := msg.(type) {
-
 	case tea.WindowSizeMsg:
-		newWidth := int(float64(msg.Width) * 0.9)
-		m.styles.InputField = m.styles.InputField.Width(newWidth)
-		m.viewport.Width = newWidth
-		m.textarea.SetWidth(newWidth)
-		m.viewport.Height = msg.Height - m.textarea.Height() - lipgloss.Height(m.View()) + 1
+		m.width = msg.Width
+		m.height = msg.Height
+
+		// Calcular tamaños
+		availableWidth := m.width - m.styles.AppStyle.GetHorizontalFrameSize()
+		availableHeight := m.height - m.styles.AppStyle.GetVerticalFrameSize()
+		m.textarea.SetWidth(availableWidth)
+		viewportHeight := availableHeight - m.textarea.Height() - m.styles.InputField.GetVerticalFrameSize()
+		m.viewport.Width = availableWidth
+		m.viewport.Height = viewportHeight
+
+		if !m.isReady {
+			// Primera vez que se recibe WindowSizeMsg. Ahora que tenemos tamaño, 
+			// podemos establecer el contenido inicial.
+			if len(m.messages) > 0 {
+				m.updateViewport()
+				m.viewport.GotoBottom()
+			} else {
+				var initialContent string
+				if m.config != nil {
+					provider := m.config.Providers[m.config.ActiveLLM]
+					initialContent = fmt.Sprintf("Bienvenido a Sikma Code!\nProveedor activo: %s (%s)", provider.Name, provider.Model)
+					initialContent += fmt.Sprintf("\nNueva sesión: %s", m.sessionName)
+				} else {
+					initialContent = "Error al cargar la configuración."
+				}
+				m.viewport.SetContent(initialContent)
+			}
+			m.isReady = true
+		}
+
+		// Propagar el WindowSizeMsg a los componentes para que puedan procesarlo internamente
+		m.textarea, tiCmd = m.textarea.Update(msg)
+		m.viewport, vpCmd = m.viewport.Update(msg)
+		cmds = append(cmds, tiCmd, vpCmd)
+
+		return m, tea.Batch(cmds...)
 
 	case completionMsg:
 		m.messages = append(m.messages, &genai.Content{
@@ -112,31 +183,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		switch {
+		case key.Matches(msg, m.keyMap.Quit):
 			return m, tea.Quit
-		case tea.KeyEnter:
+
+		case key.Matches(msg, m.keyMap.Save):
+			err := session.SaveSession(m.sessionName, m.messages)
+			if err != nil {
+				// Manejar el error
+			}
+			return m, nil // Opcional: mostrar mensaje de guardado
+
+		case msg.Type == tea.KeyEnter:
 			if m.apiKey == "" {
 				return m, nil
 			}
 			userInput := m.textarea.Value()
-			// Añadir mensaje del usuario al historial.
 			m.messages = append(m.messages, &genai.Content{
 				Parts: []genai.Part{genai.Text(userInput)},
 				Role:  "user",
 			})
 			m.updateViewport()
 			m.textarea.Reset()
-			// Esperar la respuesta del LLM, pasando el input del usuario por separado.
-			return m, m.waitForCompletion(userInput)
+			cmds = append(cmds, m.waitForCompletion(userInput))
 		}
 	}
 
-	return m, tea.Batch(tiCmd, vpCmd)
+	// Pasar el mensaje a los componentes anidados
+	m.textarea, tiCmd = m.textarea.Update(msg)
+	m.viewport, vpCmd = m.viewport.Update(msg)
+	cmds = append(cmds, tiCmd, vpCmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 // updateViewport actualiza el contenido del viewport con el historial de mensajes.
-func (m *Model) updateViewport() {
+func (m *appModel) updateViewport() {
 	var content strings.Builder
 	for _, msg := range m.messages {
 		role := "🤖"
@@ -145,22 +227,40 @@ func (m *Model) updateViewport() {
 		}
 		if len(msg.Parts) > 0 {
 			if txt, ok := msg.Parts[0].(genai.Text); ok {
-				content.WriteString(fmt.Sprintf("**%s**:\n%s\n\n", role, string(txt)))
+				content.WriteString(fmt.Sprintf("```markdown\n**%s**:\n%s\n```\n\n", role, string(txt))) // Añadido markdown para mejor renderizado
 			}
 		}
 	}
 	m.viewport.SetContent(content.String())
-	m.viewport.GotoBottom()
 }
 
-func (m Model) View() string {
+// View renderiza la interfaz completa de la aplicación.
+func (m *appModel) View() string {
+	if !m.isReady {
+		return "Inicializando..."
+	}
+	// Si la ventana es demasiado pequeña, mostrar un mensaje
+	minWidth, minHeight := 25, 10
+	if m.width < minWidth || m.height < minHeight {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			m.styles.ErrorStyle.Render("Ventana demasiado pequeña!"),
+		)
+	}
+
 	if m.err != nil {
 		return fmt.Sprintf("Error: %s\n\nPresiona Ctrl+C para salir.", m.err)
 	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
+	// Componer la vista principal
+	appView := lipgloss.JoinVertical(
+		lipgloss.Top,
 		m.viewport.View(),
 		m.styles.InputField.Render(m.textarea.View()),
 	)
+
+	return m.styles.AppStyle.Render(appView)
 }

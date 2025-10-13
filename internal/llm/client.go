@@ -9,7 +9,7 @@ import (
 )
 
 // GenerateResponse se comunica con la API de Google para obtener una respuesta del modelo Gemini.
-func GenerateResponse(apiKey string, history []*genai.Content, newMessage string) (string, error) {
+func GenerateResponse(apiKey, modelName, systemPrompt string, history []*genai.Content, newMessage string) (string, error) {
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
@@ -17,11 +17,22 @@ func GenerateResponse(apiKey string, history []*genai.Content, newMessage string
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.5-pro")
+	model := client.GenerativeModel(modelName)
 	cs := model.StartChat()
+
+	// Construir el historial completo, incluyendo el system prompt
+	fullHistory := make([]*genai.Content, 0, len(history)+2)
+	fullHistory = append(fullHistory, &genai.Content{
+		Parts: []genai.Part{genai.Text(systemPrompt)},
+		Role:  "user", // Gemini trata los system prompts como un mensaje de usuario inicial
+	})
+	fullHistory = append(fullHistory, &genai.Content{
+		Parts: []genai.Part{genai.Text("Entendido.")}, // Una respuesta de modelo para "cebar" la conversación
+		Role:  "model",
+	})
+	fullHistory = append(fullHistory, history...)
 	
-	// La historia de la sesión de chat se establece con los mensajes anteriores.
-	cs.History = history
+	cs.History = fullHistory
 
 	// Se envía solo el nuevo mensaje.
 	resp, err := cs.SendMessage(ctx, genai.Text(newMessage))
