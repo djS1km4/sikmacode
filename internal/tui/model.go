@@ -1,0 +1,166 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/djS1km4/sikmacode/internal/llm"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/google/generative-ai-go/genai"
+)
+
+// completionMsg es el mensaje que se recibe cuando el LLM completa una respuesta.
+type completionMsg struct{
+	content string
+}
+
+// errorMsg es el mensaje para los errores que puedan ocurrir.
+type errorMsg struct{ err error }
+
+func (e errorMsg) Error() string { return e.err.Error() }
+
+type Model struct {
+	viewport    viewport.Model
+	textarea    textarea.Model
+	messages    []*genai.Content
+	styles      Styles
+	apiKey      string
+	err         error
+}
+
+func NewModel() Model {
+	styles := DefaultStyles()
+	ta := textarea.New()
+	ta.Placeholder = "Escribe tu mensaje aquí..."
+	ta.Focus()
+
+	ta.Prompt = "┃ "
+	ta.CharLimit = 0 // Sin límite de caracteres
+	ta.SetHeight(3)
+
+	ta.FocusedStyle.CursorLine = lipgloss.Style{}
+
+	vp := viewport.New(50, 5)
+	apiKey := os.Getenv("GEMINI_API_KEY")
+
+	if apiKey == "" {
+		vp.SetContent(`Bienvenido a Sikma Code!
+Error: La variable de entorno GEMINI_API_KEY no está configurada.`)
+	} else {
+		vp.SetContent(`Bienvenido a Sikma Code!
+API Key detectada. Escribe un mensaje para comenzar.`)
+	}
+
+	ta.KeyMap.InsertNewline.SetEnabled(false)
+
+	return Model{
+		textarea: ta,
+		viewport: vp,
+		styles:   styles,
+		apiKey:   apiKey,
+		messages: make([]*genai.Content, 0),
+	}
+}
+
+func (m Model) Init() tea.Cmd {
+	return textarea.Blink
+}
+
+// waitForCompletion es el comando que espera la respuesta del LLM.
+func (m Model) waitForCompletion(userInput string) tea.Cmd {
+	return func() tea.Msg {
+		// El historial que se envía no incluye el mensaje actual del usuario.
+		response, err := llm.GenerateResponse(m.apiKey, m.messages, userInput)
+		if err != nil {
+			return errorMsg{err}
+		}
+		return completionMsg{response}
+	}
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		tiCmd tea.Cmd
+		vpCmd tea.Cmd
+	)
+
+	m.textarea, tiCmd = m.textarea.Update(msg)
+	m.viewport, vpCmd = m.viewport.Update(msg)
+
+	switch msg := msg.(type) {
+
+	case tea.WindowSizeMsg:
+		newWidth := int(float64(msg.Width) * 0.9)
+		m.styles.InputField = m.styles.InputField.Width(newWidth)
+		m.viewport.Width = newWidth
+		m.textarea.SetWidth(newWidth)
+		m.viewport.Height = msg.Height - m.textarea.Height() - lipgloss.Height(m.View()) + 1
+
+	case completionMsg:
+		m.messages = append(m.messages, &genai.Content{
+			Parts: []genai.Part{genai.Text(msg.content)},
+			Role:  "model",
+		})
+		m.updateViewport()
+
+	case errorMsg:
+		m.err = msg
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			return m, tea.Quit
+		case tea.KeyEnter:
+			if m.apiKey == "" {
+				return m, nil
+			}
+			userInput := m.textarea.Value()
+			// Añadir mensaje del usuario al historial.
+			m.messages = append(m.messages, &genai.Content{
+				Parts: []genai.Part{genai.Text(userInput)},
+				Role:  "user",
+			})
+			m.updateViewport()
+			m.textarea.Reset()
+			// Esperar la respuesta del LLM, pasando el input del usuario por separado.
+			return m, m.waitForCompletion(userInput)
+		}
+	}
+
+	return m, tea.Batch(tiCmd, vpCmd)
+}
+
+// updateViewport actualiza el contenido del viewport con el historial de mensajes.
+func (m *Model) updateViewport() {
+	var content strings.Builder
+	for _, msg := range m.messages {
+		role := "🤖"
+		if msg.Role == "user" {
+			role = "👤"
+		}
+		if len(msg.Parts) > 0 {
+			if txt, ok := msg.Parts[0].(genai.Text); ok {
+				content.WriteString(fmt.Sprintf("**%s**:\n%s\n\n", role, string(txt)))
+			}
+		}
+	}
+	m.viewport.SetContent(content.String())
+	m.viewport.GotoBottom()
+}
+
+func (m Model) View() string {
+	if m.err != nil {
+		return fmt.Sprintf("Error: %s\n\nPresiona Ctrl+C para salir.", m.err)
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.viewport.View(),
+		m.styles.InputField.Render(m.textarea.View()),
+	)
+}
