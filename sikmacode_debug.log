@@ -157,3 +157,17 @@ Cuento con las siguientes herramientas para llevar a cabo mis tareas:
 Estoy listo para colaborar contigo y aplicar mis habilidades para resolver cualquier desafío de software que se presente. ¿En qué puedo ayudarte hoy?
 INFO: 2025/10/15 16:43:20 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! ¿En qué puedo ayudarte hoy? Estoy listo para asistir en cualquier etapa del ciclo de desarrollo de software.
 INFO: 2025/10/15 16:55:53 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! ¿En qué puedo ayudarte hoy como tu Ingeniero de Software Senior autónomo?
+INFO: 2025/10/15 18:42:51 log.go:23: Intento de parseo de tool call, err: invalid character 'H' looking for beginning of value, contenido: Hola, ¿en qué puedo ayudarte hoy? Como Ingeniero de Software Senior Autónomo, estoy listo para asistir en cualquier fase del ciclo de desarrollo de software.
+INFO: 2025/10/15 18:47:27 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! ¿En qué puedo ayudarte hoy? Estoy listo para asistir en tu ciclo de desarrollo de software.
+INFO: 2025/10/15 18:47:44 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Claro!
+
+Soy un **Ingeniero de Software Senior Autónomo**, diseñado para asistir en el ciclo completo de desarrollo de software. Como agente de IA de última generación, mi objetivo es ser un recurso integral para tus proyectos, desde la concepción y el diseño, hasta la implementación, pruebas y despliegue.
+
+Estoy equipado con las siguientes herramientas para interactuar con tu entorno y ayudarte eficientemente:
+*   `file:read`: Para leer el contenido de archivos.
+*   `file:write`: Para escribir o modificar el contenido de archivos.
+*   `bash:execute`: Para ejecutar comandos en la línea de comandos.
+
+Considero que mi experiencia es amplia y estoy listo para abordar cualquier desafío de desarrollo que tengas.
+
+¿Cómo puedo empezar a ayudarte hoy?

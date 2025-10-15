@@ -47,57 +47,59 @@ type appModel struct {
 	apiKey        string
 	sessionName   string
 	keyMap        KeyMap
-	isReady       bool
-	agent         *agent.Agent
-	err           error
-	width, height int
-}
-
-func NewAppModel(sessionName string) *appModel {
-	styles := DefaultStyles()
-	ta := textarea.New()
-	ta.Placeholder = "Escribe tu mensaje aquí..."
-	ta.Focus()
-	ta.Prompt = "> "
-	ta.ShowLineNumbers = false
-	ta.SetHeight(3)
-
-	vp := viewport.New(80, 20)
-	ta.KeyMap.InsertNewline.SetEnabled(false)
-
-	cfg, _ := config.LoadConfig()
-	var apiKey string
-	if cfg != nil {
-		apiKey, _ = cfg.GetActiveAPIKey()
+		isReady          bool
+		isSplashVisible  bool // Nuevo estado para controlar la visibilidad del logo grande
+		agent            *agent.Agent
+		err              error
+		width, height     int
 	}
-
-	var messages []*genai.Content
-	if sessionName != "" {
-		loadedMessages, err := session.LoadSession(sessionName)
-		if err == nil {
-			messages = loadedMessages
+	
+	func NewAppModel(sessionName string) *appModel {
+		styles := DefaultStyles()
+		ta := textarea.New()
+		ta.Placeholder = "Escribe tu mensaje aquí..."
+		ta.Focus()
+		ta.Prompt = "> "
+		ta.ShowLineNumbers = false
+		ta.SetHeight(3)
+	
+		vp := viewport.New(80, 20)
+		ta.KeyMap.InsertNewline.SetEnabled(false)
+	
+		cfg, _ := config.LoadConfig()
+		var apiKey string
+		if cfg != nil {
+			apiKey, _ = cfg.GetActiveAPIKey()
 		}
-	} else {
-		sessionName = fmt.Sprintf("session-%d", time.Now().Unix())
-	}
-
-	var agentInstance *agent.Agent
-	if cfg != nil {
-		agentInstance = agent.NewAgent(cfg.Agent)
-	}
-
-	return &appModel{
-		textarea:    ta,
-		viewport:    vp,
-		styles:      styles,
-		config:      cfg,
-		apiKey:      apiKey,
-		sessionName: sessionName,
-		messages:    messages,
-		keyMap:      DefaultKeyMap(),
-		isReady:     false,
-		agent:       agentInstance,
-	}
+	
+		var messages []*genai.Content
+		if sessionName != "" {
+			loadedMessages, err := session.LoadSession(sessionName)
+			if err == nil {
+				messages = loadedMessages
+			}
+		} else {
+			sessionName = fmt.Sprintf("session-%d", time.Now().Unix())
+		}
+	
+		var agentInstance *agent.Agent
+		if cfg != nil {
+			agentInstance = agent.NewAgent(cfg.Agent)
+		}
+	
+		return &appModel{
+			textarea:        ta,
+			viewport:        vp,
+			styles:          styles,
+			config:          cfg,
+			apiKey:          apiKey,
+			sessionName:     sessionName,
+			messages:        messages,
+			keyMap:          DefaultKeyMap(),
+			isReady:         false,
+			isSplashVisible: true, // Inicia con el logo grande visible
+			agent:           agentInstance,
+		}
 }
 
 func (m *appModel) Init() tea.Cmd {
@@ -199,6 +201,10 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Type == tea.KeyEnter:
 			userInput := m.textarea.Value()
 			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userInput)}, Role: "user"})
+			// Al enviar el primer mensaje, ocultamos el logo grande
+			if m.isSplashVisible {
+				m.isSplashVisible = false
+			}
 			m.updateViewport()
 			m.textarea.Reset()
 			cmds = append(cmds, m.waitForCompletion(userInput))
@@ -238,11 +244,33 @@ func (m *appModel) updateViewport() {
 	m.viewport.GotoBottom()
 }
 
+const smallLogo = "≧◉◡◉≦"
+
 func (m *appModel) headerView() string {
-	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	infoLine := infoStyle.Render(fmt.Sprintf("Bienvenido a SikmaCode | Sesión: %s", m.sessionName))
-	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // Light Gray
-	return lipgloss.JoinVertical(lipgloss.Center, logoStyle.Render(logo), infoLine)
+	if m.isSplashVisible {
+		logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // Light Gray
+		return lipgloss.JoinVertical(lipgloss.Center, logoStyle.Render(logo), "\nBienvenido a SikmaCode - una nueva experiencia de IA")
+	}
+
+	// Header pequeño con layout de dos columnas
+	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true) // Light Gray, Bold
+	leftSide := logoStyle.Render(smallLogo) + "  " + m.sessionName
+
+	timeStr := time.Now().Format("15:04:05")
+	modelName := m.config.Providers[m.config.ActiveLLM].Model
+	rightSide := fmt.Sprintf("%s | %s", modelName, timeStr)
+
+	leftWidth := lipgloss.Width(leftSide)
+	rightWidth := lipgloss.Width(rightSide)
+	totalWidth := m.viewport.Width
+
+	spacerWidth := totalWidth - leftWidth - rightWidth
+	if spacerWidth < 0 {
+		spacerWidth = 0
+	}
+	spacer := strings.Repeat(" ", spacerWidth)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftSide, spacer, rightSide)
 }
 
 func (m *appModel) footerView() string {
