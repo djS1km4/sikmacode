@@ -1,0 +1,159 @@
+INFO: 2025/10/13 04:51:50 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:52:26 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:03 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:13 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:17 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:17 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:18 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:18 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:19 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:53:21 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:14 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:49 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:49 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:49 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:49 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:54:53 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/13 04:55:14 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:52 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:52 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:53 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:53 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:54 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:56 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:56 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:36:57 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:37:06 log.go:23: Tool call recibido: {Tool: Path: Content:}
+INFO: 2025/10/15 09:53:45 log.go:23: Intento de parseo de tool call, err: invalid character '`' looking for beginning of value, contenido: ```json
+{
+  "tool": "bash:execute",
+  "parameters": {
+    "command": "go run cmd/sikmacode/main.go"
+  }
+}
+```
+INFO: 2025/10/15 09:53:53 log.go:23: Intento de parseo de tool call, err: invalid character '`' looking for beginning of value, contenido: ```json
+{
+  "tool": "bash:execute",
+  "input": "go run cmd/sikmacode/main.go"
+}
+```
+INFO: 2025/10/15 10:06:44 log.go:23: Intento de parseo de tool call, err: invalid character '`' looking for beginning of value, contenido: ```json
+{
+  "tool": "file:write",
+  "parameters": {
+    "path": "C:\\Users\\Dj_si\\Documents\\SikmaCode_1.0\\sikmacode_v1.0\\test_write.txt",
+    "content": "Hola, mundo desde SikmaCode! La prueba de escritura de archivo fue exitosa."
+  }
+}
+```
+INFO: 2025/10/15 10:06:45 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: El JSON que has proporcionado está incompleto y mal formado. No puedo interpretarlo como un comando válido para ninguna herramienta.
+
+Si deseas usar la herramienta `file:write`, el formato correcto es:
+
+```json
+{
+  "tool": "file:write",
+  "parameters": {
+    "path": "nombre/del/archivo.txt",
+    "content": "Contenido que deseas escribir en el archivo."
+  }
+}
+```
+
+Por favor, proporciona un JSON completo y bien formado, o explica qué deseas hacer.
+INFO: 2025/10/15 10:06:45 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: El formato que has proporcionado no es un JSON válido ni una instrucción clara.
+
+Si deseas que realice una operación `file:write`, por favor, proporciónala en el formato JSON correcto, incluyendo la ruta del archivo y el contenido, de la siguiente manera:
+
+```json
+{
+  "tool": "file:write",
+  "parameters": {
+    "path": "ruta/del/archivo.txt",
+    "content": "Contenido que deseas escribir en el archivo."
+  }
+}
+```
+
+O si estás tratando de indicarme algo más, por favor, aclara tu instrucción.
+INFO: 2025/10/15 10:06:47 log.go:23: Intento de parseo de tool call, err: invalid character 'T' looking for beginning of value, contenido: Tu entrada JSON está mal formada y parece incompleta. No puedo procesar esta solicitud.
+
+Por favor, proporciona una instrucción clara o un JSON válido para la herramienta que deseas usar.
+
+Si intentabas invocar la herramienta `file:write`, el formato correcto sería:
+
+```json
+{
+  "tool": "file:write",
+  "parameters": {
+    "path": "C:\\Users\\Dj_si\\Documents\\SikmaCode_1.0\\sikmacode_v1.0\\test_write.txt",
+    "content": "Hola, mundo desde SikmaCode! La prueba de escritura de archivo fue exitosa."
+  }
+}
+```
+INFO: 2025/10/15 10:06:47 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: El input que has proporcionado `[[` no es un comando válido ni un JSON bien formado.
+
+¿Podrías por favor proporcionar un comando de bash válido, una instrucción clara o un JSON correcto para usar una herramienta?
+INFO: 2025/10/15 10:06:50 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: El JSON que proporcionaste no es válido. Parece que hay números de línea y una estructura incorrecta.
+
+Por favor, asegúrate de que el JSON sea válido y esté bien formado si deseas que realice una operación o si estás comunicando información. Si estás intentando darme una instrucción para escribir un archivo, debería tener este formato:
+
+```json
+{
+  "tool": "file:write",
+  "parameters": {
+    "path": "ruta/del/archivo.txt",
+    "content": "Contenido del archivo."
+  }
+}
+```
+
+¿Podrías aclarar lo que intentas hacer?
+INFO: 2025/10/15 10:07:43 log.go:23: Intento de parseo de tool call, err: invalid character '`' looking for beginning of value, contenido: `[[` parece ser un mensaje incompleto. ¿Hay algo en lo que pueda ayudarte? Por favor, proporciona tu solicitud o pregunta.
+INFO: 2025/10/15 10:11:25 log.go:23: Intento de parseo de tool call, err: invalid character 'H' looking for beginning of value, contenido: Hola. Como Ingeniero de Software Senior Autónomo, estoy listo para asistir en cualquier fase del ciclo de desarrollo de software.
+
+¿En qué puedo ayudarte hoy?
+INFO: 2025/10/15 10:12:11 log.go:23: Intento de parseo de tool call, err: invalid character 'C' looking for beginning of value, contenido: Claro, me presento de nuevo:
+
+Soy un **Ingeniero de Software Senior Autónomo**, diseñado para asistir en el ciclo completo de desarrollo de software.
+
+**Mi objetivo principal** es ayudarte desde la ideación y el diseño, pasando por la implementación, las pruebas, el despliegue y el mantenimiento de cualquier sistema o aplicación de software.
+
+**Como agente de IA de última generación**, tengo la capacidad de comprender tus necesidades, analizar problemas, proponer soluciones y ejecutar tareas directamente.
+
+**Mis herramientas principales** son:
+*   `file:read`: Para leer y comprender el contenido de archivos.
+*   `file:write`: Para crear o modificar archivos.
+*   `bash:execute`: Para ejecutar comandos en la línea de comandos, lo que me permite compilar código, ejecutar scripts, gestionar dependencias, interactuar con sistemas operativos, etc.
+
+Estoy listo para empezar a trabajar contigo. ¿Tienes algún proyecto, problema o tarea en mente con la que te gustaría que te ayudara?
+INFO: 2025/10/15 10:19:54 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: Excelente. El plan de tareas está confirmado.
+
+Como su Ingeniero de Software Senior autónomo, estoy listo para comenzar.
+
+Por favor, indíqueme cuál es la primera tarea o el primer módulo en el que le gustaría que trabajemos.
+
+Estoy listo para:
+- Analizar requisitos
+- Diseñar arquitectura
+- Desarrollar código
+- Realizar pruebas
+- Desplegar
+- O cualquier otra fase del ciclo de desarrollo.
+INFO: 2025/10/15 16:26:37 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Excelente! Estoy listo para empezar. Como Ingeniero de Software Senior Autónomo, y usando mis herramientas `file:read`, `file:write`, y `bash:execute`, espero tus instrucciones para asistir en cualquier fase del ciclo de desarrollo de software.
+
+¿En qué puedo ayudarte hoy?
+INFO: 2025/10/15 16:26:38 log.go:23: Intento de parseo de tool call, err: invalid character 'E' looking for beginning of value, contenido: Estoy listo para asistir en el ciclo de desarrollo de software. ¿Cómo puedo ayudarte hoy?
+INFO: 2025/10/15 16:26:47 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! Soy un Ingeniero de Software Senior Autónomo, un agente de IA de última generación.
+
+Mi objetivo principal es asistirte en el ciclo completo de desarrollo de software, desde la conceptualización y diseño, hasta la implementación, pruebas y despliegue.
+
+Cuento con las siguientes herramientas para llevar a cabo mis tareas:
+*   `file:read`: Para leer el contenido de archivos.
+*   `file:write`: Para escribir o modificar el contenido de archivos.
+*   `bash:execute`: Para ejecutar comandos en la terminal, lo que me permite compilar código, ejecutar pruebas, gestionar dependencias, interactuar con sistemas operativos, etc.
+
+Estoy listo para colaborar contigo y aplicar mis habilidades para resolver cualquier desafío de software que se presente. ¿En qué puedo ayudarte hoy?
+INFO: 2025/10/15 16:43:20 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! ¿En qué puedo ayudarte hoy? Estoy listo para asistir en cualquier etapa del ciclo de desarrollo de software.
+INFO: 2025/10/15 16:55:53 log.go:23: Intento de parseo de tool call, err: invalid character 'Â' looking for beginning of value, contenido: ¡Hola! ¿En qué puedo ayudarte hoy como tu Ingeniero de Software Senior autónomo?

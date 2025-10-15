@@ -1,0 +1,4 @@
+INFO: 2025/10/13 17:36:07 log.go:23: Intentando escribir en el archivo: C:\Users\Dj_si\Documents\SikmaCode_1.0\sikmacode_v1.0\internal\tools\test_file.txt
+INFO: 2025/10/13 17:36:07 log.go:23: Escritura exitosa en el archivo C:\Users\Dj_si\Documents\SikmaCode_1.0\sikmacode_v1.0\internal\tools\test_file.txt
+INFO: 2025/10/13 17:37:27 log.go:23: Intentando escribir en el archivo: C:\Users\Dj_si\Documents\SikmaCode_1.0\sikmacode_v1.0\internal\tools\test_file_from_tui.txt
+INFO: 2025/10/13 17:37:28 log.go:23: Escritura exitosa en el archivo C:\Users\Dj_si\Documents\SikmaCode_1.0\sikmacode_v1.0\internal\tools\test_file_from_tui.txt
