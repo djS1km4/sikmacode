@@ -336,7 +336,7 @@ func (m *appModel) View() string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("228")).
 			Padding(1, 2).
-			Render(m.confirmPrompt + "\n\n(s/n/a)")
+			Render(m.confirmPrompt + "\n\n(s/n)")
 
 		return lipgloss.Place(
 			m.width,
