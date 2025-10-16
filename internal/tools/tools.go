@@ -81,12 +81,20 @@ func WriteFile(path string, content string) error {
 	}
 
 	log.Printf("Intentando escribir en el archivo: %s", absPath)
-
+	
 	err = os.WriteFile(absPath, []byte(content), 0644)
 	if err != nil {
 		log.Printf("Falló la escritura en el archivo %s: %v", absPath, err)
-	} else {
-		log.Printf("Escritura exitosa en el archivo %s", absPath)
+		return err // Devuelve el error original de escritura
 	}
-	return err
+
+	// Paso de verificación: intentar leer el archivo inmediatamente después de escribirlo.
+	_, err = os.ReadFile(absPath)
+	if err != nil {
+		log.Printf("VERIFICACIÓN FALLIDA: El archivo no se pudo leer después de escribir: %v", err)
+		return fmt.Errorf("la escritura pareció exitosa pero la verificación de lectura falló: %w", err)
+	}
+
+	log.Printf("Escritura y verificación exitosa en el archivo %s", absPath)
+	return nil // Éxito confirmado
 }

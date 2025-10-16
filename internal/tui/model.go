@@ -51,6 +51,9 @@ type appModel struct {
 	isSplashVisible  bool
 	isConfirming     bool
 	confirmPrompt    string
+	confirmationType string
+	pendingCall      *tools.ToolCall
+	allowedTools     map[string]bool
 	agent            *agent.Agent
 	err              error
 	width, height     int
@@ -101,6 +104,7 @@ func NewAppModel(sessionName string) *appModel {
 		keyMap:          DefaultKeyMap(),
 		isReady:         false,
 		isSplashVisible: true,
+		allowedTools:    make(map[string]bool),
 		agent:           agentInstance,
 	}
 }
@@ -128,6 +132,22 @@ func (m *appModel) waitForCompletion(userInput string) tea.Cmd {
 		}
 		return completionMsg{response}
 	}
+}
+
+// executeAndLog es una función helper que ejecuta una herramienta y loguea el resultado.
+func (m *appModel) executeAndLog(call tools.ToolCall) {
+	result, err := tools.Execute(call)
+	var resultMsg string
+	if err != nil {
+		resultMsg = fmt.Sprintf("Error al ejecutar la herramienta %s: %v", call.Name, err)
+	} else {
+		resultMsg = result
+	}
+	m.messages = append(m.messages, &genai.Content{
+		Parts: []genai.Part{genai.Text(resultMsg)},
+		Role:  "model",
+	})
+	m.updateViewport()
 }
 
 func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -181,7 +201,6 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if err == nil && len(rawToolCalls) > 0 {
-			var toolResultContent strings.Builder
 			for _, rawCall := range rawToolCalls {
 				call := tools.ToolCall{}
 				if name, ok := rawCall["tool"].(string); ok {
@@ -200,27 +219,32 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					call.Arguments = rawCall
 				}
 
+				// La TUI decide si se necesita confirmación
 				switch call.Name {
-				case "ask_user_confirmation":
-					m.isConfirming = true
-					m.confirmPrompt = "Proceder con la acción ?"
-					return m, nil
-				default:
-					result, err := tools.Execute(call)
-					if err != nil {
-						toolResultContent.WriteString(fmt.Sprintf("Error al ejecutar la herramienta %s: %v\n", call.Name, err))
+				case "file:write", "file:read":
+					if m.allowedTools[call.Name] {
+						m.executeAndLog(call)
 					} else {
-						toolResultContent.WriteString(result + "\n")
+						m.pendingCall = &call
+						m.isConfirming = true
+						m.confirmPrompt = fmt.Sprintf("El agente quiere usar `%s`. Proceder?", call.Name)
+						m.confirmationType = "S/N/A"
+						return m, nil
 					}
+				case "bash:execute":
+					m.pendingCall = &call
+					m.isConfirming = true
+					m.confirmPrompt = fmt.Sprintf("El agente quiere ejecutar: `%s`. Proceder?", call.Arguments["command"])
+					m.confirmationType = "S/N"
+						return m, nil
+				default:
+					m.executeAndLog(call)
 				}
-			}
-			if toolResultContent.Len() > 0 {
-				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(toolResultContent.String())}, Role: "model"})
 			}
 		} else {
 			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(msg.content)}, Role: "model"})
+			m.updateViewport()
 		}
-		m.updateViewport()
 
 	case errorMsg:
 		m.err = msg
@@ -231,17 +255,26 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch strings.ToLower(msg.String()) {
 			case "s", "y":
 				m.isConfirming = false
-				userResponse := "CONFIRMADO. Procede con la acción."
-				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userResponse)}, Role: "user"})
-				m.updateViewport()
-				return m, m.waitForCompletion(userResponse)
+				if m.pendingCall != nil {
+					m.executeAndLog(*m.pendingCall)
+					m.pendingCall = nil
+				}
 			case "n":
 				m.isConfirming = false
-				userResponse := "CANCELADO. No realices la acción."
-				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userResponse)}, Role: "user"})
+				m.pendingCall = nil
+				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("Acción cancelada por el usuario.")}, Role: "model"})
 				m.updateViewport()
-				return m, nil
+			case "a":
+				if m.confirmationType == "S/N/A" {
+					m.isConfirming = false
+					if m.pendingCall != nil {
+						m.allowedTools[m.pendingCall.Name] = true
+						m.executeAndLog(*m.pendingCall)
+						m.pendingCall = nil
+					}
+				}
 			}
+			return m, nil
 		}
 
 		switch {
@@ -332,11 +365,17 @@ func (m *appModel) View() string {
 	}
 
 	if m.isConfirming {
+		var options string
+		if m.confirmationType == "S/N/A" {
+			options = "(s/n/a)"
+		} else {
+			options = "(s/n)"
+		}
 		dialogBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("228")).
 			Padding(1, 2).
-			Render(m.confirmPrompt + "\n\n(s/n)")
+			Render(m.confirmPrompt + "\n\n" + options)
 
 		return lipgloss.Place(
 			m.width,

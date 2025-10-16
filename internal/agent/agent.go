@@ -39,12 +39,12 @@ func (a *Agent) BuildSystemPrompt() string {
 	for _, tool := range a.Tools {
 		sb.WriteString(fmt.Sprintf("- `%s`\n", tool))
 	}
-	sb.WriteString("\n")
+sb.WriteString("\n")
+	sb.WriteString("### ENTORNO OPERATIVO ###\n")
+	sb.WriteString("Sistema Operativo: Windows\n")
+	sb.WriteString("Shell: cmd.exe\n\n")
 	sb.WriteString("### REGLAS DE EJECUCIÓN ###\n")
-	sb.WriteString("1. Para operaciones que modifican archivos (como `file:write` o usar `del`/`rm` con `bash:execute`), DEBES usar la herramienta `ask_user_confirmation` PRIMERO para pedir permiso.\n")
-	sb.WriteString("2. Una vez que el usuario responde 'CONFIRMADO', tu siguiente acción debe ser ejecutar la operación destructiva de inmediato, sin volver a preguntar.\n")
-	sb.WriteString("3. Describe la acción peligrosa en el `prompt` de la confirmación.\n")
-	sb.WriteString("4. Estás operando en un sistema de archivos de Windows. Usa los comandos de shell de Windows (ej. `dir` en lugar de `ls`, `del` en lugar de `rm`).\n\n")
+	sb.WriteString("### FORMATO DE RESPUESTA ###\n")
 	sb.WriteString("### FORMATO DE RESPUESTA ###\n")
 	sb.WriteString("Cuando necesites usar una herramienta, responde ÚNICAMENTE con un array de objetos JSON que siga este formato exacto:\n")
 	sb.WriteString("```json\n")
