@@ -14,7 +14,6 @@ import (
 	"github.com/djS1km4/sikmacode/internal/agent"
 	"github.com/djS1km4/sikmacode/internal/config"
 	"github.com/djS1km4/sikmacode/internal/llm"
-	"github.com/djS1km4/sikmacode/internal/log"
 	"github.com/djS1km4/sikmacode/internal/session"
 	"github.com/djS1km4/sikmacode/internal/tools"
 	"github.com/google/generative-ai-go/genai"
@@ -112,11 +111,6 @@ func (m *appModel) Init() tea.Cmd {
 
 func (m *appModel) waitForCompletion(userInput string) tea.Cmd {
 	return func() tea.Msg {
-		var toolCalls []tools.ToolCall
-		if err := json.Unmarshal([]byte(userInput), &toolCalls); err == nil && len(toolCalls) > 0 {
-			return completionMsg{content: userInput}
-		}
-
 		if m.config == nil {
 			return errorMsg{fmt.Errorf("configuración no cargada")}
 		}
@@ -168,7 +162,6 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		content := msg.content
 		jsonStr := content
 
-		// Extraer JSON de forma robusta desde un bloque de markdown
 		if start := strings.Index(content, "```json"); start != -1 {
 			if end := strings.LastIndex(content, "```"); end > start {
 				jsonStr = content[start+len("```json") : end]
@@ -176,27 +169,20 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		log.Printf("Attempting to parse JSON: %s", jsonStr)
-
 		var rawToolCalls []map[string]interface{}
 		err := json.Unmarshal([]byte(jsonStr), &rawToolCalls)
-
-		// Si falla el parseo de array, intentar parsear como un solo objeto
 		if err != nil {
 			var singleRawCall map[string]interface{}
 			err2 := json.Unmarshal([]byte(jsonStr), &singleRawCall)
 			if err2 == nil {
 				rawToolCalls = []map[string]interface{}{singleRawCall}
-				err = nil // Limpiar el error original, ya que hemos tenido éxito
+				err = nil
 			}
 		}
-
-		log.Printf("Parse result: err=%v, calls=%+v", err, rawToolCalls)
 
 		if err == nil && len(rawToolCalls) > 0 {
 			var toolResultContent strings.Builder
 			for _, rawCall := range rawToolCalls {
-				// Normaliza el tool call a nuestra struct interna de forma flexible
 				call := tools.ToolCall{}
 				if name, ok := rawCall["tool"].(string); ok {
 					call.Name = name
@@ -214,14 +200,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					call.Arguments = rawCall
 				}
 
-				log.Printf("Procesando tool call normalizado: %+v", call)
-
 				switch call.Name {
 				case "ask_user_confirmation":
-					// Ignorar el prompt del LLM y usar uno genérico y simple.
 					m.isConfirming = true
 					m.confirmPrompt = "Proceder con la acción ?"
-					return m, nil // Espera la entrada del usuario
+					return m, nil
 				default:
 					result, err := tools.Execute(call)
 					if err != nil {
@@ -231,19 +214,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-
 			if toolResultContent.Len() > 0 {
-				m.messages = append(m.messages, &genai.Content{
-					Parts: []genai.Part{genai.Text(toolResultContent.String())},
-					Role:  "model",
-				})
+				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(toolResultContent.String())}, Role: "model"})
 			}
 		} else {
-			// No es un JSON de herramienta, es texto plano
-			m.messages = append(m.messages, &genai.Content{
-				Parts: []genai.Part{genai.Text(msg.content)},
-				Role:  "model",
-			})
+			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(msg.content)}, Role: "model"})
 		}
 		m.updateViewport()
 
@@ -361,7 +336,7 @@ func (m *appModel) View() string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("228")).
 			Padding(1, 2).
-			Render(m.confirmPrompt + "\n\n(s/n)")
+			Render(m.confirmPrompt + "\n\n(s/n/a)")
 
 		return lipgloss.Place(
 			m.width,

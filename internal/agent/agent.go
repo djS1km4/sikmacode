@@ -41,7 +41,7 @@ func (a *Agent) BuildSystemPrompt() string {
 	}
 	sb.WriteString("\n")
 	sb.WriteString("### REGLAS DE EJECUCIÓN ###\n")
-	sb.WriteString("1. Para cualquier operación destructiva o que modifique el sistema de archivos (ej. borrar o sobreescribir un archivo), DEBES usar la herramienta `ask_user_confirmation` PRIMERO para pedir permiso.\n")
+	sb.WriteString("1. Para operaciones que modifican archivos (como `file:write` o usar `del`/`rm` con `bash:execute`), DEBES usar la herramienta `ask_user_confirmation` PRIMERO para pedir permiso.\n")
 	sb.WriteString("2. Una vez que el usuario responde 'CONFIRMADO', tu siguiente acción debe ser ejecutar la operación destructiva de inmediato, sin volver a preguntar.\n")
 	sb.WriteString("3. Describe la acción peligrosa en el `prompt` de la confirmación.\n")
 	sb.WriteString("4. Estás operando en un sistema de archivos de Windows. Usa los comandos de shell de Windows (ej. `dir` en lugar de `ls`, `del` en lugar de `rm`).\n\n")
