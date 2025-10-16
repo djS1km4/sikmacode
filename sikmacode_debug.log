@@ -171,3 +171,12 @@ Estoy equipado con las siguientes herramientas para interactuar con tu entorno y
 Considero que mi experiencia es amplia y estoy listo para abordar cualquier desafío de desarrollo que tengas.
 
 ¿Cómo puedo empezar a ayudarte hoy?
+INFO: 2025/10/15 19:14:32 log.go:23: Intento de parseo de tool call, err: invalid character '`' looking for beginning of value, contenido: ```json
+{
+  "tool_code": "print(file.write(path='sikma.txt', content='hol amundo soy sikma'))"
+}
+```
+INFO: 2025/10/15 20:44:46 log.go:23: Intento de parseo de tool call, err: invalid character 'H' looking for beginning of value, contenido: Hola, ¿en qué puedo ayudarte hoy?
+INFO: 2025/10/15 20:50:06 log.go:23: Intento de parseo de tool call, err: invalid character 'H' looking for beginning of value, contenido: Hola, soy un Ingeniero de Software Senior Autónomo. Mi objetivo es asistir en el ciclo completo de desarrollo de software, desde el diseño y la implementación hasta las pruebas y el despliegue. Como agente de IA de última generación, estoy equipado con herramientas como `file:read`, `file:write`, y `bash:execute` para llevar a cabo diversas tareas de desarrollo.
+
+¿En qué puedo ayudarte hoy?

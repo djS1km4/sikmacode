@@ -57,10 +57,13 @@ type appModel struct {
 	func NewAppModel(sessionName string) *appModel {
 		styles := DefaultStyles()
 		ta := textarea.New()
-		ta.Placeholder = "Escribe tu mensaje aquí..."
+		ta.Placeholder = "ingresa tu pregunta para inciar : )"
 		ta.Focus()
-		ta.Prompt = "> "
+		ta.Prompt = ">"
+	
 		ta.ShowLineNumbers = false
+	// Corrección para bug de letra fantasma y línea gris
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 		ta.SetHeight(3)
 	
 		vp := viewport.New(80, 20)
