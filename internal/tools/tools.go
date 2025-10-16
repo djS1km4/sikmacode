@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/djS1km4/sikmacode/internal/log"
@@ -11,8 +12,8 @@ import (
 // ToolCall representa una llamada a una herramienta con nombre y argumentos.
 // Esta definición debe ser consistente con la que espera el paquete TUI.
 type ToolCall struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments"`
+	Name      string                 `json:"tool"`
+	Arguments map[string]interface{} `json:"kwargs"`
 }
 
 // Execute es un despachador que ejecuta la herramienta correcta basada en el nombre.
@@ -43,6 +44,19 @@ func Execute(call ToolCall) (string, error) {
 			return "", err
 		}
 		return content, nil
+
+	case "bash:execute":
+		command, ok := call.Arguments["command"].(string)
+		if !ok {
+			return "", fmt.Errorf("argumento 'command' para bash:execute es inválido o no existe")
+		}
+		// NOTA: Por ahora se ejecuta directamente. La confirmación se añadirá después.
+		cmd := exec.Command("cmd", "/C", command) // Usar cmd /C para compatibilidad con Windows
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("error al ejecutar comando: %s, salida: %s", err, string(output))
+		}
+		return fmt.Sprintf("Acción completada.\n%s", string(output)), nil
 
 	default:
 		return "", fmt.Errorf("herramienta desconocida: %s", call.Name)

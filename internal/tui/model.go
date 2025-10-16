@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/djS1km4/sikmacode/internal/agent"
 	"github.com/djS1km4/sikmacode/internal/config"
@@ -28,7 +27,9 @@ const logo = `░██████╗██╗██╗░░██╗███
 ██████╔╝██║██║░╚██╗██║░╚═╝░██║██║░░██║╚█████╔╝╚█████╔╝██████╔╝███████╗
 ╚═════╝░╚═╝╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░░╚════╝░╚═════╝░╚══════╝`
 
-type completionMsg struct {
+const smallLogo = "≧ ◉ ◡ ◉ ≦"
+
+type completionMsg struct{
 	content string
 }
 
@@ -39,70 +40,70 @@ type errorMsg struct {
 func (e errorMsg) Error() string { return e.err.Error() }
 
 type appModel struct {
-	viewport      viewport.Model
-	textarea      textarea.Model
-	messages      []*genai.Content
-	styles        Styles
-	config        *config.Config
-	apiKey        string
-	sessionName   string
-	keyMap        KeyMap
-		isReady          bool
-		isSplashVisible  bool // Nuevo estado para controlar la visibilidad del logo grande
-		agent            *agent.Agent
-		err              error
-		width, height     int
-	}
-	
-	func NewAppModel(sessionName string) *appModel {
-		styles := DefaultStyles()
-		ta := textarea.New()
-		ta.Placeholder = "ingresa tu pregunta para inciar : )"
-		ta.Focus()
-		ta.Prompt = ">"
-	
-		ta.ShowLineNumbers = false
-	// Corrección para bug de letra fantasma y línea gris
+	viewport         viewport.Model
+	textarea         textarea.Model
+	messages         []*genai.Content
+	styles           Styles
+	config           *config.Config
+	apiKey           string
+	sessionName      string
+	keyMap           KeyMap
+	isReady          bool
+	isSplashVisible  bool
+	isConfirming     bool
+	confirmPrompt    string
+	agent            *agent.Agent
+	err              error
+	width, height     int
+}
+
+func NewAppModel(sessionName string) *appModel {
+	styles := DefaultStyles()
+	ta := textarea.New()
+	ta.Placeholder = "Escribe tu mensaje aquí..."
+	ta.Focus()
+	ta.Prompt = "> "
+	ta.ShowLineNumbers = false
+	ta.SetHeight(3)
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-		ta.SetHeight(3)
-	
-		vp := viewport.New(80, 20)
-		ta.KeyMap.InsertNewline.SetEnabled(false)
-	
-		cfg, _ := config.LoadConfig()
-		var apiKey string
-		if cfg != nil {
-			apiKey, _ = cfg.GetActiveAPIKey()
+
+	vp := viewport.New(80, 20)
+	ta.KeyMap.InsertNewline.SetEnabled(false)
+
+	cfg, _ := config.LoadConfig()
+	var apiKey string
+	if cfg != nil {
+		apiKey, _ = cfg.GetActiveAPIKey()
+	}
+
+	var messages []*genai.Content
+	if sessionName != "" {
+		loadedMessages, err := session.LoadSession(sessionName)
+		if err == nil {
+			messages = loadedMessages
 		}
-	
-		var messages []*genai.Content
-		if sessionName != "" {
-			loadedMessages, err := session.LoadSession(sessionName)
-			if err == nil {
-				messages = loadedMessages
-			}
-		} else {
-			sessionName = fmt.Sprintf("session-%d", time.Now().Unix())
-		}
-	
-		var agentInstance *agent.Agent
-		if cfg != nil {
-			agentInstance = agent.NewAgent(cfg.Agent)
-		}
-	
-		return &appModel{
-			textarea:        ta,
-			viewport:        vp,
-			styles:          styles,
-			config:          cfg,
-			apiKey:          apiKey,
-			sessionName:     sessionName,
-			messages:        messages,
-			keyMap:          DefaultKeyMap(),
-			isReady:         false,
-			isSplashVisible: true, // Inicia con el logo grande visible
-			agent:           agentInstance,
-		}
+	} else {
+		sessionName = fmt.Sprintf("session-%d", time.Now().Unix())
+	}
+
+	var agentInstance *agent.Agent
+	if cfg != nil {
+		agentInstance = agent.NewAgent(cfg.Agent)
+	}
+
+	return &appModel{
+		textarea:        ta,
+		viewport:        vp,
+		styles:          styles,
+		config:          cfg,
+		apiKey:          apiKey,
+		sessionName:     sessionName,
+		messages:        messages,
+		keyMap:          DefaultKeyMap(),
+		isReady:         false,
+		isSplashVisible: true,
+		agent:           agentInstance,
+	}
 }
 
 func (m *appModel) Init() tea.Cmd {
@@ -148,14 +149,15 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		headerHeight := lipgloss.Height(m.headerView())
 		footerHeight := lipgloss.Height(m.footerView())
-		dividerHeight := 1
-
+		
+		mainContentHeight := m.height - headerHeight - footerHeight
 		availableWidth := m.width - m.styles.AppStyle.GetHorizontalFrameSize()
-		availableHeight := m.height - m.styles.AppStyle.GetVerticalFrameSize()
+		availableHeight := mainContentHeight - m.styles.AppStyle.GetVerticalFrameSize()
 
+		dividerHeight := 1
 		m.textarea.SetWidth(availableWidth)
 		m.viewport.Width = availableWidth
-		m.viewport.Height = availableHeight - headerHeight - footerHeight - dividerHeight - m.textarea.Height()
+		m.viewport.Height = availableHeight - dividerHeight - m.textarea.Height()
 
 		if !m.isReady {
 			m.updateViewport()
@@ -163,26 +165,81 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case completionMsg:
-		var toolCalls []tools.ToolCall
-		err := json.Unmarshal([]byte(msg.content), &toolCalls)
-		log.Printf("Intento de parseo de tool call, err: %v, contenido: %s", err, msg.content)
+		content := msg.content
+		jsonStr := content
 
-		if err == nil && len(toolCalls) > 0 {
+		// Extraer JSON de forma robusta desde un bloque de markdown
+		if start := strings.Index(content, "```json"); start != -1 {
+			if end := strings.LastIndex(content, "```"); end > start {
+				jsonStr = content[start+len("```json") : end]
+				jsonStr = strings.TrimSpace(jsonStr)
+			}
+		}
+
+		log.Printf("Attempting to parse JSON: %s", jsonStr)
+
+		var rawToolCalls []map[string]interface{}
+		err := json.Unmarshal([]byte(jsonStr), &rawToolCalls)
+
+		// Si falla el parseo de array, intentar parsear como un solo objeto
+		if err != nil {
+			var singleRawCall map[string]interface{}
+			err2 := json.Unmarshal([]byte(jsonStr), &singleRawCall)
+			if err2 == nil {
+				rawToolCalls = []map[string]interface{}{singleRawCall}
+				err = nil // Limpiar el error original, ya que hemos tenido éxito
+			}
+		}
+
+		log.Printf("Parse result: err=%v, calls=%+v", err, rawToolCalls)
+
+		if err == nil && len(rawToolCalls) > 0 {
 			var toolResultContent strings.Builder
-			for _, call := range toolCalls {
-				log.Printf("Ejecutando tool call: %+v", call)
-				result, err := tools.Execute(call)
-				if err != nil {
-					toolResultContent.WriteString(fmt.Sprintf("Error al ejecutar la herramienta %s: %v\n", call.Name, err))
+			for _, rawCall := range rawToolCalls {
+				// Normaliza el tool call a nuestra struct interna de forma flexible
+				call := tools.ToolCall{}
+				if name, ok := rawCall["tool"].(string); ok {
+					call.Name = name
+				} else if name, ok := rawCall["tool_name"].(string); ok {
+					call.Name = name
+				} else if name, ok := rawCall["tool_code"].(string); ok {
+					call.Name = name
+				}
+
+				if args, ok := rawCall["kwargs"].(map[string]interface{}); ok {
+					call.Arguments = args
+				} else if args, ok := rawCall["parameters"].(map[string]interface{}); ok {
+					call.Arguments = args
 				} else {
-					toolResultContent.WriteString(fmt.Sprintf("Resultado de %s: %s\n", call.Name, result))
+					call.Arguments = rawCall
+				}
+
+				log.Printf("Procesando tool call normalizado: %+v", call)
+
+				switch call.Name {
+				case "ask_user_confirmation":
+					// Ignorar el prompt del LLM y usar uno genérico y simple.
+					m.isConfirming = true
+					m.confirmPrompt = "Proceder con la acción ?"
+					return m, nil // Espera la entrada del usuario
+				default:
+					result, err := tools.Execute(call)
+					if err != nil {
+						toolResultContent.WriteString(fmt.Sprintf("Error al ejecutar la herramienta %s: %v\n", call.Name, err))
+					} else {
+						toolResultContent.WriteString(result + "\n")
+					}
 				}
 			}
-			m.messages = append(m.messages, &genai.Content{
-				Parts: []genai.Part{genai.Text(toolResultContent.String())},
-				Role:  "model",
-			})
+
+			if toolResultContent.Len() > 0 {
+				m.messages = append(m.messages, &genai.Content{
+					Parts: []genai.Part{genai.Text(toolResultContent.String())},
+					Role:  "model",
+				})
+			}
 		} else {
+			// No es un JSON de herramienta, es texto plano
 			m.messages = append(m.messages, &genai.Content{
 				Parts: []genai.Part{genai.Text(msg.content)},
 				Role:  "model",
@@ -195,6 +252,23 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.isConfirming {
+			switch strings.ToLower(msg.String()) {
+			case "s", "y":
+				m.isConfirming = false
+				userResponse := "CONFIRMADO. Procede con la acción."
+				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userResponse)}, Role: "user"})
+				m.updateViewport()
+				return m, m.waitForCompletion(userResponse)
+			case "n":
+				m.isConfirming = false
+				userResponse := "CANCELADO. No realices la acción."
+				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userResponse)}, Role: "user"})
+				m.updateViewport()
+				return m, nil
+			}
+		}
+
 		switch {
 		case key.Matches(msg, m.keyMap.Quit):
 			return m, tea.Quit
@@ -204,7 +278,6 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Type == tea.KeyEnter:
 			userInput := m.textarea.Value()
 			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userInput)}, Role: "user"})
-			// Al enviar el primer mensaje, ocultamos el logo grande
 			if m.isSplashVisible {
 				m.isSplashVisible = false
 			}
@@ -222,11 +295,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *appModel) updateViewport() {
-	renderer, _ := glamour.NewTermRenderer(glamour.WithAutoStyle())
-
 	var content strings.Builder
 	for i, msg := range m.messages {
-		role := "🤖 Sikma"
+		role := "🤖 Agente"
 		style := m.styles.AgentRole
 		if msg.Role == "user" {
 			role = "👤 Usuario"
@@ -235,8 +306,8 @@ func (m *appModel) updateViewport() {
 		if len(msg.Parts) > 0 {
 			if txt, ok := msg.Parts[0].(genai.Text); ok {
 				formattedRole := style.Render(role)
-				rendered, _ := renderer.Render(string(txt))
-				content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, rendered))
+				wrappedText := lipgloss.NewStyle().Width(m.viewport.Width).Render(string(txt))
+				content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, wrappedText))
 				if i < len(m.messages)-1 {
 					content.WriteString("\n\n---\n\n")
 				}
@@ -247,16 +318,13 @@ func (m *appModel) updateViewport() {
 	m.viewport.GotoBottom()
 }
 
-const smallLogo = "≧◉◡◉≦"
-
 func (m *appModel) headerView() string {
 	if m.isSplashVisible {
-		logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // Light Gray
+		logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 		return lipgloss.JoinVertical(lipgloss.Center, logoStyle.Render(logo), "\nBienvenido a SikmaCode - una nueva experiencia de IA")
 	}
 
-	// Header pequeño con layout de dos columnas
-	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true) // Light Gray, Bold
+	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
 	leftSide := logoStyle.Render(smallLogo) + "  " + m.sessionName
 
 	timeStr := time.Now().Format("15:04:05")
@@ -269,7 +337,7 @@ func (m *appModel) headerView() string {
 
 	spacerWidth := totalWidth - leftWidth - rightWidth
 	if spacerWidth < 0 {
-		spacerWidth = 0
+			spacerWidth = 0
 	}
 	spacer := strings.Repeat(" ", spacerWidth)
 
@@ -288,18 +356,38 @@ func (m *appModel) View() string {
 		return "Inicializando..."
 	}
 
+	if m.isConfirming {
+		dialogBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("228")).
+			Padding(1, 2).
+			Render(m.confirmPrompt + "\n\n(s/n)")
+
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			dialogBox,
+		)
+	}
+
 	divider := m.styles.DividerStyle.Render(strings.Repeat("─", m.viewport.Width))
 
-	// Construye el bloque de contenido principal
-	mainContent := lipgloss.JoinVertical(
+	// Contenido que va dentro del borde
+	innerContent := lipgloss.JoinVertical(
 		lipgloss.Left,
-		m.headerView(),
 		m.viewport.View(),
 		divider,
 		m.textarea.View(),
+	)
+	borderedContent := m.styles.AppStyle.Render(innerContent)
+
+	// Ensamblaje final
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.headerView(),
+		borderedContent,
 		m.footerView(),
 	)
-
-	// Aplica el estilo del contenedor principal a todo el bloque
-	return m.styles.AppStyle.Render(mainContent)
 }

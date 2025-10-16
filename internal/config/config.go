@@ -78,7 +78,7 @@ func createDefaultConfig(path string) (*Config, error) {
 			Role:      "Ingeniero de Software Senior Autónomo",
 			Goal:      "Asistir en el ciclo completo de desarrollo de software.",
 			Backstory: "Eres un agente de IA de última generación.",
-			Tools:     []string{"file:read", "file:write", "bash:execute"},
+			Tools:     []string{"file:read", "file:write", "bash:execute", "ask_user_confirmation"},
 		},
 	}
 
