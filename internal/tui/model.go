@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"regexp"
+	"math/rand"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -43,6 +44,9 @@ type errorMsg struct {
 type streamChunkMsg struct{ chunk string }
 type streamDoneMsg struct{}
 
+// Nuevo: mensaje de tick para barra de carga
+type loadingTickMsg struct{ frame string }
+
 func (e errorMsg) Error() string { return e.err.Error() }
 
 type appModel struct {
@@ -69,6 +73,8 @@ type appModel struct {
 	streamBuffer     strings.Builder
 	streamClient     *genai.Client
 	streamIter       *genai.GenerateContentResponseIterator
+	// Barra de carga
+	loadingBar       string
 	// Ayuda
 	showHelp         bool
 	// Seguridad UX
@@ -149,6 +155,8 @@ func (m *appModel) startStreamCmd(userInput string) tea.Cmd {
 		m.streamIter = iter
 		m.isStreaming = true
 		m.streamBuffer.Reset()
+		// Inicializar barra de carga
+		m.loadingBar = randomBar(15)
 		// Leer primer chunk
 		return m.readNextStreamChunkMsg()
 	}
@@ -176,9 +184,7 @@ func (m *appModel) readNextStreamChunkMsg() tea.Msg {
 	return streamChunkMsg{chunk: chunk.String()}
 }
 
-func (m *appModel) nextStreamChunkCmd() tea.Cmd {
-	return func() tea.Msg { return m.readNextStreamChunkMsg() }
-}
+// nextStreamChunkCmd moved to bottom of file to group with tick utilities
 
 // sanitizeAgentText elimina bloques JSON de tool-calls del texto del agente.
 func sanitizeAgentText(s string) string {
@@ -335,7 +341,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamBuffer.WriteString(msg.chunk)
 			m.updateViewport()
 		}
-		return m, m.nextStreamChunkCmd()
+		return m, tea.Batch(m.nextStreamChunkCmd(), m.loadingTickCmd())
 
 	case streamDoneMsg:
 		if m.streamClient != nil {
@@ -427,7 +433,16 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.isStreaming = false
 		m.streamIter = nil
+		m.loadingBar = ""
 		m.updateViewport()
+		return m, nil
+
+	case loadingTickMsg:
+		m.loadingBar = msg.frame
+		if m.isStreaming {
+			m.updateViewport()
+			return m, m.loadingTickCmd()
+		}
 		return m, nil
 
 	case errorMsg:
@@ -517,7 +532,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.updateViewport()
 			m.textarea.Reset()
-			return m, m.startStreamCmd(userInput)
+			return m, tea.Batch(m.startStreamCmd(userInput), m.loadingTickCmd())
 		}
 	}
 
@@ -568,6 +583,7 @@ func (m *appModel) updateViewport() {
 		}
 	}
 	// Añadir buffer de streaming en vivo
+	printedStreaming := false
 	if m.isStreaming && m.streamBuffer.Len() > 0 {
 		formattedRole := m.styles.AgentRole.Render("🤖 Agente")
 		raw := m.streamBuffer.String()
@@ -586,6 +602,21 @@ func (m *appModel) updateViewport() {
 				content.WriteString("\n\n---\n\n")
 			}
 			content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, rendered))
+			printedStreaming = true
+		}
+	}
+	// Añadir barra de carga dinámica cuando está en streaming
+	if m.isStreaming {
+		bar := m.styles.LoadingStyle.Render(m.loadingBar)
+		if printedStreaming {
+			content.WriteString("\n" + bar)
+		} else {
+			// No se imprimió contenido del agente aún; mostrar etiqueta y barra
+			if content.Len() > 0 {
+				content.WriteString("\n\n---\n\n")
+			}
+			formattedRole := m.styles.AgentRole.Render("🤖 Agente")
+			content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, bar))
 		}
 	}
 	m.viewport.SetContent(content.String())
@@ -713,4 +744,26 @@ func (m *appModel) View() string {
 		borderedContent,
 		m.footerView(),
 	)
+}
+
+
+func (m *appModel) nextStreamChunkCmd() tea.Cmd {
+	return func() tea.Msg { return m.readNextStreamChunkMsg() }
+}
+
+// Nuevo: comando tick para actualizar barra de carga
+func (m *appModel) loadingTickCmd() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return loadingTickMsg{frame: randomBar(15)}
+	})
+}
+
+// Genera una barra de 15 caracteres con símbolos aleatorios
+func randomBar(n int) string {
+	chars := []rune{'█','▓','▒','░','─','━','╌','╍','▌','▐','▍','▎','▏'}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteRune(chars[rand.Intn(len(chars))])
+	}
+	return b.String()
 }

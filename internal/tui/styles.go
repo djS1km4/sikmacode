@@ -11,6 +11,7 @@ type Styles struct {
 	AgentRole     lipgloss.Style
 	FooterStyle   lipgloss.Style
 	DividerStyle  lipgloss.Style
+	LoadingStyle  lipgloss.Style
 }
 
 // DefaultStyles devuelve un conjunto de estilos predeterminados.
@@ -39,5 +40,8 @@ func DefaultStyles() Styles {
 			Padding(0, 1),
 		DividerStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")),
+		LoadingStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Italic(true),
 	}
 }
