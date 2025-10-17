@@ -119,11 +119,20 @@ func main() {
 		systemPrompt := ag.BuildSystemPrompt()
 
 		if *streamFlag {
+			// Validación temprana del modelo activo
+			if provider.Model == "" {
+				stdlog.Fatalf("modelo activo vacío; configure --model o use --provider junto con --model")
+			}
+
 			client, iter, err := llm.StartStream(apiKey, provider.Model, systemPrompt, nil, *promptFlag)
 			if err != nil {
-				stdlog.Fatalf("error LLM streaming: %v", err)
+				stdlog.Fatalf("error LLM streaming con modelo '%s': %v", provider.Model, err)
 			}
 			defer client.Close()
+
+			// Indicador simple de streaming
+			fmt.Print(">>> ")
+
 			for {
 				resp, err := iter.Next()
 				if err == iterator.Done {
@@ -132,11 +141,16 @@ func main() {
 				if err != nil {
 					stdlog.Fatalf("error en stream: %v", err)
 				}
-				if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
-					for _, p := range resp.Candidates[0].Content.Parts {
-						if t, ok := p.(genai.Text); ok {
-							fmt.Print(string(t))
-						}
+				if resp == nil || len(resp.Candidates) == 0 {
+					continue
+				}
+				cand := resp.Candidates[0]
+				if cand.Content == nil || len(cand.Content.Parts) == 0 {
+					continue
+				}
+				for _, p := range cand.Content.Parts {
+					if t, ok := p.(genai.Text); ok {
+						fmt.Print(string(t))
 					}
 				}
 			}
