@@ -75,6 +75,9 @@ type appModel struct {
 	streamIter       *genai.GenerateContentResponseIterator
 	// Barra de carga
 	loadingBar       string
+	// Precarga (antes de responder)
+	isPreloading     bool
+	preloadText      string
 	// Ayuda
 	showHelp         bool
 	// Seguridad UX
@@ -114,6 +117,8 @@ func NewAppModel(sessionName string) *appModel {
 	if cfg != nil {
 		agentInstance = agent.NewAgent(cfg.Agent)
 	}
+// Sembrar aleatoriedad para barras y precarga
+	rand.Seed(time.Now().UnixNano())
 
 	return &appModel{
 		textarea:        ta,
@@ -339,6 +344,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamChunkMsg:
 		if msg.chunk != "" {
 			m.streamBuffer.WriteString(msg.chunk)
+			// Apagar precarga al llegar el primer chunk
+			m.isPreloading = false
+			m.preloadText = ""
 			m.updateViewport()
 		}
 		return m, tea.Batch(m.nextStreamChunkCmd(), m.loadingTickCmd())
@@ -532,7 +540,10 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.updateViewport()
 			m.textarea.Reset()
-			return m, tea.Batch(m.startStreamCmd(userInput), m.loadingTickCmd())
+			// Encender precarga alfanumérica antes de responder
+			m.isPreloading = true
+			m.preloadText = randomAlphaNum(16)
+			return m, tea.Batch(m.startStreamCmd(userInput), m.preloadTickCmd())
 		}
 	}
 
@@ -582,7 +593,16 @@ func (m *appModel) updateViewport() {
 			}
 		}
 	}
-	// Añadir buffer de streaming en vivo
+	// Mostrar precarga alfanumérica (antes de responder)
+	if m.isPreloading {
+	pre := m.styles.LoadingStyle.Render(m.preloadText)
+	if content.Len() > 0 {
+	content.WriteString("\n\n---\n\n")
+	}
+	formattedRole := m.styles.AgentRole.Render("🤖 Agente")
+	content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, pre))
+	}
+ 	// Añadir buffer de streaming en vivo
 	printedStreaming := false
 	if m.isStreaming && m.streamBuffer.Len() > 0 {
 		formattedRole := m.styles.AgentRole.Render("🤖 Agente")
@@ -767,3 +787,23 @@ func randomBar(n int) string {
 	}
 	return b.String()
 }
+
+// Nuevo: comando tick para precarga alfanumérica
+func (m *appModel) preloadTickCmd() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return preloadTickMsg{ text: randomAlphaNum(16) }
+	})
+}
+
+// Genera una cadena alfanumérica aleatoria de n caracteres
+func randomAlphaNum(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteByte(letters[rand.Intn(len(letters))])
+	}
+	return b.String()
+}
+
+// Nuevo: mensaje de precarga alfanumérica antes de responder
+type preloadTickMsg struct{ text string }
