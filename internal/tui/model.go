@@ -5,18 +5,21 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"regexp"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/glamour"
 	"github.com/djS1km4/sikmacode/internal/agent"
 	"github.com/djS1km4/sikmacode/internal/config"
 	"github.com/djS1km4/sikmacode/internal/llm"
 	"github.com/djS1km4/sikmacode/internal/session"
 	"github.com/djS1km4/sikmacode/internal/tools"
 	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/iterator"
 )
 
 const logo = `░██████╗██╗██╗░░██╗███╗░░░███╗░█████╗░░█████╗░░█████╗░██████╗░███████╗
@@ -24,7 +27,7 @@ const logo = `░██████╗██╗██╗░░██╗███
 ╚█████╗░██║█████═╝░██╔████╔██║███████║██║░░╚═╝██║░░██║██║░░██║█████╗░░
 ░╚═══██╗██║██╔═██╗░██║╚██╔╝██║██╔══██║██║░░██╗██║░░██║██║░░██║██╔══╝░░
 ██████╔╝██║██║░╚██╗██║░╚═╝░██║██║░░██║╚█████╔╝╚█████╔╝██████╔╝███████╗
-╚═════╝░╚═╝╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░░╚════╝░╚═════╝░╚══════╝`
+╚═════╝░╚═╝╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░░╚════╝░╚══════╝`
 
 const smallLogo = "≧ ◉ ◡ ◉ ≦"
 
@@ -35,6 +38,10 @@ type completionMsg struct{
 type errorMsg struct {
 	err error
 }
+
+// Mensajes para streaming
+type streamChunkMsg struct{ chunk string }
+type streamDoneMsg struct{}
 
 func (e errorMsg) Error() string { return e.err.Error() }
 
@@ -57,6 +64,15 @@ type appModel struct {
 	agent            *agent.Agent
 	err              error
 	width, height     int
+	// Streaming
+	isStreaming      bool
+	streamBuffer     strings.Builder
+	streamClient     *genai.Client
+	streamIter       *genai.GenerateContentResponseIterator
+	// Ayuda
+	showHelp         bool
+	// Seguridad UX
+	awaitingDoubleConfirm bool
 }
 
 func NewAppModel(sessionName string) *appModel {
@@ -113,7 +129,8 @@ func (m *appModel) Init() tea.Cmd {
 	return textarea.Blink
 }
 
-func (m *appModel) waitForCompletion(userInput string) tea.Cmd {
+// Comando para iniciar streaming
+func (m *appModel) startStreamCmd(userInput string) tea.Cmd {
 	return func() tea.Msg {
 		if m.config == nil {
 			return errorMsg{fmt.Errorf("configuración no cargada")}
@@ -123,15 +140,59 @@ func (m *appModel) waitForCompletion(userInput string) tea.Cmd {
 			return errorMsg{fmt.Errorf("proveedor de LLM activo no encontrado")}
 		}
 		modelName := provider.Model
-
 		systemPrompt := m.agent.BuildSystemPrompt()
-
-		response, err := llm.GenerateResponse(m.apiKey, modelName, systemPrompt, m.messages, userInput)
+		client, iter, err := llm.StartStream(m.apiKey, modelName, systemPrompt, m.messages, userInput)
 		if err != nil {
 			return errorMsg{err}
 		}
-		return completionMsg{response}
+		m.streamClient = client
+		m.streamIter = iter
+		m.isStreaming = true
+		m.streamBuffer.Reset()
+		// Leer primer chunk
+		return m.readNextStreamChunkMsg()
 	}
+}
+
+func (m *appModel) readNextStreamChunkMsg() tea.Msg {
+	if m.streamIter == nil {
+		return streamDoneMsg{}
+	}
+	resp, err := m.streamIter.Next()
+	if err == iterator.Done {
+		return streamDoneMsg{}
+	}
+	if err != nil {
+		return errorMsg{err}
+	}
+	var chunk strings.Builder
+	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+		for _, p := range resp.Candidates[0].Content.Parts {
+			if t, ok := p.(genai.Text); ok {
+				chunk.WriteString(string(t))
+			}
+		}
+	}
+	return streamChunkMsg{chunk: chunk.String()}
+}
+
+func (m *appModel) nextStreamChunkCmd() tea.Cmd {
+	return func() tea.Msg { return m.readNextStreamChunkMsg() }
+}
+
+// sanitizeAgentText elimina bloques JSON de tool-calls del texto del agente.
+func sanitizeAgentText(s string) string {
+	// Remover bloques con fences ```json ... ```
+	reFenceArray := regexp.MustCompile("(?s)```json\\s*\\[.*?\\]\\s*```")
+	s = reFenceArray.ReplaceAllString(s, "")
+	reFenceObject := regexp.MustCompile("(?s)```json\\s*\\{[\\s\\S]*?\\}" )
+	s = reFenceObject.ReplaceAllString(s, "")
+	// Remover JSON plano que contenga la clave \"tool\"
+	rePlainArray := regexp.MustCompile(`(?s)\[\s*\{[\s\S]*?"tool"[\s\S]*?\}\s*\]`)
+	s = rePlainArray.ReplaceAllString(s, "")
+	rePlainObject := regexp.MustCompile(`(?s)\{[\s\S]*?"tool"[\s\S]*?\}`)
+	s = rePlainObject.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
 }
 
 // executeAndLog es una función helper que ejecuta una herramienta y loguea el resultado.
@@ -172,6 +233,10 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea.SetWidth(availableWidth)
 		m.viewport.Width = availableWidth
 		m.viewport.Height = availableHeight - dividerHeight - m.textarea.Height()
+		// Clamp de seguridad para evitar alturas negativas
+		if m.viewport.Height < 3 {
+			m.viewport.Height = 3
+		}
 
 		if !m.isReady {
 			m.updateViewport()
@@ -236,34 +301,184 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.isConfirming = true
 					m.confirmPrompt = fmt.Sprintf("El agente quiere ejecutar: `%s`. Proceder?", call.Arguments["command"])
 					m.confirmationType = "S/N"
-						return m, nil
+					// Marcar si requiere doble confirmación
+					if cmd, ok := call.Arguments["command"].(string); ok {
+						m.awaitingDoubleConfirm = tools.IsCriticalCommand(cmd)
+					} else {
+						m.awaitingDoubleConfirm = false
+					}
+					return m, nil
+				case "ask_user_confirmation":
+					m.pendingCall = &call
+					m.isConfirming = true
+					prompt := "¿Confirmar acción del agente?"
+					if p, ok := call.Arguments["prompt"].(string); ok && p != "" {
+						prompt = p
+					}
+					m.confirmPrompt = prompt
+					m.confirmationType = "S/N"
+					return m, nil
 				default:
 					m.executeAndLog(call)
 				}
 			}
 		} else {
-			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(msg.content)}, Role: "model"})
+			clean := sanitizeAgentText(msg.content)
+			if strings.TrimSpace(clean) != "" {
+				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(clean)}, Role: "model"})
+			}
 			m.updateViewport()
 		}
+
+	case streamChunkMsg:
+		if msg.chunk != "" {
+			m.streamBuffer.WriteString(msg.chunk)
+			m.updateViewport()
+		}
+		return m, m.nextStreamChunkCmd()
+
+	case streamDoneMsg:
+		if m.streamClient != nil {
+			m.streamClient.Close()
+		}
+		finalText := m.streamBuffer.String()
+		if finalText != "" {
+			// Intentar parsear tool-calls como en completionMsg
+			jsonStr := finalText
+			if start := strings.Index(finalText, "```json"); start != -1 {
+				if end := strings.LastIndex(finalText, "```"); end > start {
+					jsonStr = finalText[start+len("```json") : end]
+					jsonStr = strings.TrimSpace(jsonStr)
+				}
+			}
+			var rawToolCalls []map[string]interface{}
+			err := json.Unmarshal([]byte(jsonStr), &rawToolCalls)
+			if err != nil {
+				var singleRawCall map[string]interface{}
+				err2 := json.Unmarshal([]byte(jsonStr), &singleRawCall)
+				if err2 == nil {
+					rawToolCalls = []map[string]interface{}{singleRawCall}
+					err = nil
+				}
+			}
+			if err == nil && len(rawToolCalls) > 0 {
+				for _, rawCall := range rawToolCalls {
+					call := tools.ToolCall{}
+					if name, ok := rawCall["tool"].(string); ok {
+						call.Name = name
+					} else if name, ok := rawCall["tool_name"].(string); ok {
+						call.Name = name
+					} else if name, ok := rawCall["tool_code"].(string); ok {
+						call.Name = name
+					}
+					if args, ok := rawCall["kwargs"].(map[string]interface{}); ok {
+						call.Arguments = args
+					} else if args, ok := rawCall["parameters"].(map[string]interface{}); ok {
+						call.Arguments = args
+					} else {
+						call.Arguments = rawCall
+					}
+					switch call.Name {
+					case "file:write", "file:read":
+						if m.allowedTools[call.Name] {
+							m.executeAndLog(call)
+						} else {
+							m.pendingCall = &call
+							m.isConfirming = true
+							m.confirmPrompt = fmt.Sprintf("El agente quiere usar `%s`. Proceder?", call.Name)
+							m.confirmationType = "S/N/A"
+							m.updateViewport()
+							return m, nil
+						}
+					case "bash:execute":
+						m.pendingCall = &call
+						m.isConfirming = true
+						m.confirmPrompt = fmt.Sprintf("El agente quiere ejecutar: `%s`. Proceder?", call.Arguments["command"])
+						m.confirmationType = "S/N"
+						// Marcar si requiere doble confirmación
+						if cmd, ok := call.Arguments["command"].(string); ok {
+							m.awaitingDoubleConfirm = tools.IsCriticalCommand(cmd)
+						} else {
+							m.awaitingDoubleConfirm = false
+						}
+						m.updateViewport()
+						return m, nil
+					case "ask_user_confirmation":
+						m.pendingCall = &call
+						m.isConfirming = true
+						prompt := "¿Confirmar acción del agente?"
+						if p, ok := call.Arguments["prompt"].(string); ok && p != "" {
+							prompt = p
+						}
+						m.confirmPrompt = prompt
+						m.confirmationType = "S/N"
+						m.updateViewport()
+						return m, nil
+					default:
+						m.executeAndLog(call)
+					}
+				}
+			} else {
+				clean := sanitizeAgentText(finalText)
+				if strings.TrimSpace(clean) != "" {
+					m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(clean)}, Role: "model"})
+				}
+			}
+		}
+		m.isStreaming = false
+		m.streamIter = nil
+		m.updateViewport()
+		return m, nil
 
 	case errorMsg:
 		m.err = msg
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.showHelp {
+			if key.Matches(msg, m.keyMap.Help) {
+				m.showHelp = false
+				return m, nil
+			}
+			if key.Matches(msg, m.keyMap.Quit) {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		if m.isConfirming {
 			switch strings.ToLower(msg.String()) {
 			case "s", "y":
+				// Manejar doble confirmación para bash:execute
+				if m.pendingCall != nil && m.pendingCall.Name == "bash:execute" && m.awaitingDoubleConfirm {
+					m.confirmPrompt = fmt.Sprintf("Comando crítico detectado: `%s`. Confirmar otra vez?", m.pendingCall.Arguments["command"])
+					m.awaitingDoubleConfirm = false
+					m.isConfirming = true
+					m.updateViewport()
+					return m, nil
+				}
 				m.isConfirming = false
 				if m.pendingCall != nil {
-					m.executeAndLog(*m.pendingCall)
-					m.pendingCall = nil
+					if m.pendingCall.Name == "ask_user_confirmation" {
+						m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("CONFIRMATION: yes")}, Role: "model"})
+						m.updateViewport()
+						m.pendingCall = nil
+					} else {
+						m.executeAndLog(*m.pendingCall)
+						m.pendingCall = nil
+					}
 				}
 			case "n":
 				m.isConfirming = false
-				m.pendingCall = nil
-				m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("Acción cancelada por el usuario.")}, Role: "model"})
-				m.updateViewport()
+				if m.pendingCall != nil && m.pendingCall.Name == "ask_user_confirmation" {
+					m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("CONFIRMATION: no")}, Role: "model"})
+					m.updateViewport()
+					m.pendingCall = nil
+				} else {
+					m.pendingCall = nil
+					m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("Acción cancelada por el usuario.")}, Role: "model"})
+					m.updateViewport()
+				}
 			case "a":
 				if m.confirmationType == "S/N/A" {
 					m.isConfirming = false
@@ -282,16 +497,27 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case key.Matches(msg, m.keyMap.Save):
 			session.SaveSession(m.sessionName, m.messages)
+			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text("Sesión guardada.")}, Role: "model"})
+			m.updateViewport()
+			return m, nil
+		case key.Matches(msg, m.keyMap.Help):
+			m.showHelp = !m.showHelp
 			return m, nil
 		case msg.Type == tea.KeyEnter:
 			userInput := m.textarea.Value()
+			trimmed := strings.TrimSpace(userInput)
+			if strings.HasPrefix(trimmed, "/help") {
+				m.showHelp = !m.showHelp
+				m.textarea.Reset()
+				return m, nil
+			}
 			m.messages = append(m.messages, &genai.Content{Parts: []genai.Part{genai.Text(userInput)}, Role: "user"})
 			if m.isSplashVisible {
 				m.isSplashVisible = false
 			}
 			m.updateViewport()
 			m.textarea.Reset()
-			cmds = append(cmds, m.waitForCompletion(userInput))
+			return m, m.startStreamCmd(userInput)
 		}
 	}
 
@@ -314,16 +540,59 @@ func (m *appModel) updateViewport() {
 		if len(msg.Parts) > 0 {
 			if txt, ok := msg.Parts[0].(genai.Text); ok {
 				formattedRole := style.Render(role)
-				wrappedText := lipgloss.NewStyle().Width(m.viewport.Width).Render(string(txt))
-				content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, wrappedText))
+
+				textToRender := string(txt)
+				if msg.Role != "user" {
+					textToRender = sanitizeAgentText(textToRender)
+					if strings.TrimSpace(textToRender) == "" {
+						// Nada que mostrar tras sanitizar
+						continue
+					}
+				}
+
+				renderer, _ := glamour.NewTermRenderer(
+					glamour.WithEnvironmentConfig(),
+					glamour.WithAutoStyle(),
+					glamour.WithWordWrap(m.viewport.Width),
+				)
+				rendered, err := renderer.Render(textToRender)
+				if err != nil {
+					rendered = lipgloss.NewStyle().Width(m.viewport.Width).Render(textToRender)
+				}
+
+				content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, rendered))
 				if i < len(m.messages)-1 {
 					content.WriteString("\n\n---\n\n")
 				}
 			}
 		}
 	}
+	// Añadir buffer de streaming en vivo
+	if m.isStreaming && m.streamBuffer.Len() > 0 {
+		formattedRole := m.styles.AgentRole.Render("🤖 Agente")
+		raw := m.streamBuffer.String()
+		clean := sanitizeAgentText(raw)
+		if strings.TrimSpace(clean) != "" {
+			renderer, _ := glamour.NewTermRenderer(
+				glamour.WithEnvironmentConfig(),
+				glamour.WithAutoStyle(),
+				glamour.WithWordWrap(m.viewport.Width),
+			)
+			rendered, err := renderer.Render(clean)
+			if err != nil {
+				rendered = lipgloss.NewStyle().Width(m.viewport.Width).Render(clean)
+			}
+			if content.Len() > 0 {
+				content.WriteString("\n\n---\n\n")
+			}
+			content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, rendered))
+		}
+	}
 	m.viewport.SetContent(content.String())
-	m.viewport.GotoBottom()
+	// Evitar pánico si la altura es muy pequeña
+	if m.viewport.Height > 0 {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m *appModel) headerView() string {
@@ -336,8 +605,14 @@ func (m *appModel) headerView() string {
 	leftSide := logoStyle.Render(smallLogo) + "  " + m.sessionName
 
 	timeStr := time.Now().Format("15:04:05")
-	modelName := m.config.Providers[m.config.ActiveLLM].Model
-	rightSide := fmt.Sprintf("%s | %s", modelName, timeStr)
+	provider := m.config.Providers[m.config.ActiveLLM]
+	modelName := provider.Model
+	providerName := provider.Name
+	status := "Idle"
+	if m.isStreaming {
+		status = "Streaming"
+	}
+	rightSide := fmt.Sprintf("%s (%s) | %s | %s", providerName, modelName, timeStr, status)
 
 	leftWidth := lipgloss.Width(leftSide)
 	rightWidth := lipgloss.Width(rightSide)
@@ -353,7 +628,8 @@ func (m *appModel) headerView() string {
 }
 
 func (m *appModel) footerView() string {
-	return m.styles.FooterStyle.Render(fmt.Sprintf("  %s | %s", m.keyMap.Save.Help().Key, m.keyMap.Quit.Help().Key))
+	help := "[Ctrl+S guardar] [Ctrl+C/Esc salir] [Ayuda: F1]"
+	return m.styles.FooterStyle.Render(help)
 }
 
 func (m *appModel) View() string {
@@ -377,6 +653,39 @@ func (m *appModel) View() string {
 			Padding(1, 2).
 			Render(m.confirmPrompt + "\n\n" + options)
 
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			dialogBox,
+		)
+	}
+
+	if m.showHelp {
+		content := strings.Join([]string{
+			"Ayuda rápida",
+			"",
+			"- Enter: enviar mensaje",
+			"- Ctrl+S: guardar sesión",
+			"- Ctrl+C / Esc: salir",
+			"- F1: mostrar/ocultar esta ayuda",
+			"- /help: alterna ayuda desde el prompt",
+			"",
+			"Confirmaciones:",
+			"- s/y: sí",
+			"- n: no",
+			"- a: siempre permitir (solo herramientas seguras)",
+			"- Nota: comandos críticos requieren doble confirmación",
+			"",
+			"Estado:",
+			"- Header muestra proveedor/modelo, hora y estado (Idle/Streaming)",
+		}, "\n")
+		dialogBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(1, 2).
+			Render(content)
 		return lipgloss.Place(
 			m.width,
 			m.height,

@@ -18,24 +18,18 @@ func GenerateResponse(apiKey, modelName, systemPrompt string, history []*genai.C
 	defer client.Close()
 
 	model := client.GenerativeModel(modelName)
-	cs := model.StartChat()
 
-	// Construir el historial completo, incluyendo el system prompt
-	fullHistory := make([]*genai.Content, 0, len(history)+2)
-	fullHistory = append(fullHistory, &genai.Content{
+	// Usar SystemInstruction para establecer el prompt de sistema de forma apropiada
+	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(systemPrompt)},
-		Role:  "user", // Gemini trata los system prompts como un mensaje de usuario inicial
-	})
-	fullHistory = append(fullHistory, &genai.Content{
-		Parts: []genai.Part{genai.Text("Entendido.")}, // Una respuesta de modelo para "cebar" la conversación
-		Role:  "model",
-	})
-	fullHistory = append(fullHistory, history...)
-	
-	cs.History = fullHistory
+	}
+
+	// Iniciar sesión de chat con el historial existente (si lo hay)
+	cs := model.StartChat()
+	cs.History = history
 
 	// Se envía solo el nuevo mensaje.
-	resp, err := cs.SendMessage(ctx, genai.Text(newMessage))
+	resp, err := cs.SendMessage(context.Background(), genai.Text(newMessage))
 	if err != nil {
 		return "", fmt.Errorf("falló al enviar el mensaje: %w", err)
 	}
@@ -48,4 +42,23 @@ func GenerateResponse(apiKey, modelName, systemPrompt string, history []*genai.C
 	}
 
 	return "", fmt.Errorf("no se encontró contenido de texto en la respuesta")
+}
+
+// StartStream inicia un flujo de respuesta en streaming y devuelve el cliente y el iterador.
+func StartStream(apiKey, modelName, systemPrompt string, history []*genai.Content, newMessage string) (*genai.Client, *genai.GenerateContentResponseIterator, error) {
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil {
+		return nil, nil, fmt.Errorf("falló al crear el cliente de genai: %w", err)
+	}
+
+	model := client.GenerativeModel(modelName)
+	model.SystemInstruction = &genai.Content{
+		Parts: []genai.Part{genai.Text(systemPrompt)},
+	}
+	cs := model.StartChat()
+	cs.History = history
+
+	iter := cs.SendMessageStream(ctx, genai.Text(newMessage))
+	return client, iter, nil
 }

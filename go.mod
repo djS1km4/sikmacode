@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/google/generative-ai-go v0.20.1
+	github.com/sourcegraph/go-diff v0.7.0
 	google.golang.org/api v0.186.0
 )
 

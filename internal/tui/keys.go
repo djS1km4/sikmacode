@@ -6,6 +6,7 @@ import "github.com/charmbracelet/bubbles/key"
 type KeyMap struct {
 	Save key.Binding
 	Quit key.Binding
+	Help key.Binding
 }
 
 // DefaultKeyMap devuelve un conjunto de atajos de teclado predeterminados.
@@ -18,6 +19,10 @@ func DefaultKeyMap() KeyMap {
 		Quit: key.NewBinding(
 			key.WithKeys("ctrl+c", "esc"),
 			key.WithHelp("ctrl+c/esc", "salir"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("f1"),
+			key.WithHelp("f1", "mostrar ayuda"),
 		),
 	}
 }

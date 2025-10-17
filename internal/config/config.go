@@ -7,11 +7,19 @@ import (
 	"path/filepath"
 )
 
+// SecurityConfig define opciones de seguridad para herramientas destructivas.
+type SecurityConfig struct {
+	Denylist          []string `json:"denylist"`
+	Critical          []string `json:"critical"`
+	DefaultTimeoutSec int      `json:"default_timeout_sec"`
+}
+
 // Config es la estructura principal de configuración para Sikma Code.
 type Config struct {
-	ActiveLLM string               `json:"active_llm"`
+	ActiveLLM string                 `json:"active_llm"`
 	Providers map[string]LLMProvider `json:"providers"`
-	Agent     AgentConfig          `json:"agent"`
+	Agent     AgentConfig            `json:"agent"`
+	Security  SecurityConfig         `json:"security"`
 }
 
 // LLMProvider define la configuración para un proveedor de LLM específico.
@@ -78,7 +86,12 @@ func createDefaultConfig(path string) (*Config, error) {
 			Role:      "Ingeniero de Software Senior Autónomo",
 			Goal:      "Asistir en el ciclo completo de desarrollo de software.",
 			Backstory: "Eres un agente de IA de última generación.",
-			Tools:     []string{"file:read", "file:write", "bash:execute"},
+			Tools:     []string{"file:read", "file:write", "file:patch", "bash:execute", "search:web", "ask_user_confirmation", "memory:write", "todo:write", "todo:update"},
+		},
+		Security: SecurityConfig{
+			Denylist: []string{"rm -rf", "rd /s /q", "del /q", "format ", "mkfs", "shutdown", "reboot", "mkpartition", "bcdedit", "reg delete"},
+			Critical: []string{"git push", "reset --hard", "terraform apply", "docker rmi", "npm publish", "choco install", "pip install -U", "setx ", "reg add"},
+			DefaultTimeoutSec: 15,
 		},
 	}
 
@@ -113,4 +126,19 @@ func (c *Config) GetActiveAPIKey() (string, error) {
 	}
 
 	return apiKey, nil
+}
+
+func SaveConfig(cfg *Config) error {
+    path, err := GetConfigPath()
+    if err != nil {
+        return err
+    }
+    data, err := json.MarshalIndent(cfg, "", "  ")
+    if err != nil {
+        return err
+    }
+    if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+        return err
+    }
+    return os.WriteFile(path, data, 0o644)
 }
