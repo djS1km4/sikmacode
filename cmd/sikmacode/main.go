@@ -7,6 +7,8 @@ import (
 	stdlog "log"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/djS1km4/sikmacode/internal/agent"
@@ -30,10 +32,12 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Habilita modo debug con logs en stdout.")
 	timeoutFlag := flag.Int("timeout", 0, "Actualiza el timeout por defecto (segundos) para bash:execute")
 	streamFlag := flag.Bool("stream", false, "Muestra respuesta en streaming (solo con --prompt)")
+	outFlag := flag.String("out", "", "Guardar salida del prompt en archivo (por defecto ./outputs/<timestamp>.txt)")
+	logLevelFlag := flag.String("log-level", "", "Nivel de log: error|warn|info|debug")
 	flag.Parse()
 
-	// --debug: habilitar salida de log por stdout
-	if *debugFlag {
+	// --debug / --log-level: habilitar salida de log por stdout
+	if *debugFlag || strings.ToLower(*logLevelFlag) == "debug" {
 		os.Setenv("SIKMACODE_DEBUG", "true")
 		siklog.EnableDebug()
 	}
@@ -118,6 +122,18 @@ func main() {
 		ag := agent.NewAgent(cfg.Agent)
 		systemPrompt := ag.BuildSystemPrompt()
 
+		// Preparar ruta de salida
+		var outPath string
+		if *outFlag == "" {
+			outDir := filepath.Join(".", "outputs")
+			_ = os.MkdirAll(outDir, 0o755)
+			stamp := time.Now().Format("20060102-150405")
+			outPath = filepath.Join(outDir, fmt.Sprintf("prompt-%s.txt", stamp))
+		} else {
+			outPath = *outFlag
+			_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
+		}
+
 		if *streamFlag {
 			// Validación temprana del modelo activo
 			if provider.Model == "" {
@@ -133,6 +149,7 @@ func main() {
 			// Indicador simple de streaming
 			fmt.Print(">>> ")
 
+			var outBuf strings.Builder
 			for {
 				resp, err := iter.Next()
 				if err == iterator.Done {
@@ -150,11 +167,19 @@ func main() {
 				}
 				for _, p := range cand.Content.Parts {
 					if t, ok := p.(genai.Text); ok {
-						fmt.Print(string(t))
+						text := string(t)
+						fmt.Print(text)
+						outBuf.WriteString(text)
 					}
 				}
 			}
 			fmt.Println()
+			// Guardar salida en archivo
+			if err := os.WriteFile(outPath, []byte(outBuf.String()), 0o644); err == nil {
+				fmt.Printf("Salida guardada en: %s\n", outPath)
+			} else {
+				stdlog.Printf("no se pudo guardar salida en %s: %v", outPath, err)
+			}
 			return
 		}
 
@@ -163,6 +188,12 @@ func main() {
 			stdlog.Fatalf("error LLM: %v", err)
 		}
 		fmt.Println(resp)
+		// Guardar salida en archivo
+		if err := os.WriteFile(outPath, []byte(resp), 0o644); err == nil {
+			fmt.Printf("Salida guardada en: %s\n", outPath)
+		} else {
+			stdlog.Printf("no se pudo guardar salida en %s: %v", outPath, err)
+		}
 		return
 	}
 

@@ -1,0 +1,5 @@
+Claro. ¿Podrías especificar qué salida de streaming te gustaría guardar y en qué archivo?
+
+Por ejemplo, si quisieras guardar la salida de un comando `ping` continuo a un archivo llamado `ping_log.txt`, podrías usar un comando de redirección en la terminal.
+
+Una vez que me des el comando cuya salida quieres capturar y el nombre del archivo de destino, generaré el comando exacto para ti.
