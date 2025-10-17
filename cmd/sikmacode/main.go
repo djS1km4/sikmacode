@@ -14,6 +14,8 @@ import (
 	"github.com/djS1km4/sikmacode/internal/llm"
 	siklog "github.com/djS1km4/sikmacode/internal/log"
 	"github.com/djS1km4/sikmacode/internal/tui"
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/iterator"
 )
 
 func main() {
@@ -27,6 +29,7 @@ func main() {
 	cwdFlag := flag.String("cwd", "", "Establece el directorio de trabajo antes de iniciar.")
 	debugFlag := flag.Bool("debug", false, "Habilita modo debug con logs en stdout.")
 	timeoutFlag := flag.Int("timeout", 0, "Actualiza el timeout por defecto (segundos) para bash:execute")
+	streamFlag := flag.Bool("stream", false, "Muestra respuesta en streaming (solo con --prompt)")
 	flag.Parse()
 
 	// --debug: habilitar salida de log por stdout
@@ -114,6 +117,33 @@ func main() {
 		provider := cfg.Providers[cfg.ActiveLLM]
 		ag := agent.NewAgent(cfg.Agent)
 		systemPrompt := ag.BuildSystemPrompt()
+
+		if *streamFlag {
+			client, iter, err := llm.StartStream(apiKey, provider.Model, systemPrompt, nil, *promptFlag)
+			if err != nil {
+				stdlog.Fatalf("error LLM streaming: %v", err)
+			}
+			defer client.Close()
+			for {
+				resp, err := iter.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					stdlog.Fatalf("error en stream: %v", err)
+				}
+				if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+					for _, p := range resp.Candidates[0].Content.Parts {
+						if t, ok := p.(genai.Text); ok {
+							fmt.Print(string(t))
+						}
+					}
+				}
+			}
+			fmt.Println()
+			return
+		}
+
 		resp, err := llm.GenerateResponse(apiKey, provider.Model, systemPrompt, nil, *promptFlag)
 		if err != nil {
 			stdlog.Fatalf("error LLM: %v", err)
