@@ -440,9 +440,19 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.isStreaming = false
-		m.streamIter = nil
-		m.loadingBar = ""
-		m.updateViewport()
+	m.streamIter = nil
+	m.loadingBar = ""
+	m.isPreloading = false
+	m.preloadText = ""
+	m.updateViewport()
+	return m, nil
+
+	case preloadTickMsg:
+		if m.isPreloading {
+			m.preloadText = msg.text
+			m.updateViewport()
+			return m, m.preloadTickCmd()
+		}
 		return m, nil
 
 	case loadingTickMsg:
