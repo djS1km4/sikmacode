@@ -17,8 +17,7 @@ import (
 	"github.com/djS1km4/sikmacode/internal/llm"
 	siklog "github.com/djS1km4/sikmacode/internal/log"
 	"github.com/djS1km4/sikmacode/internal/tui"
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/iterator"
+	"errors"
 )
 
 func main() {
@@ -44,6 +43,11 @@ func main() {
 	criticalAddFlag := flag.String("critical-add", "", "Agrega comandos críticos (coma-separados)")
 	criticalRemoveFlag := flag.String("critical-remove", "", "Remueve comandos críticos (coma-separados)")
 	flag.Parse()
+
+	// Auto-init silencioso: si falta configuración en $HOME, crear/capturar por defecto.
+	if err := ensureDefaultConfigInstalled(); err != nil {
+		siklog.Printf("auto-init config warning: %v", err)
+	}
 
 	// Doctor: validación temprana del entorno
 	if *doctorFlag || *doctorJSONFlag {
@@ -228,7 +232,7 @@ func main() {
 				stdlog.Fatalf("modelo activo vacío; configure --model o use --provider junto con --model")
 			}
 
-			client, iter, err := llm.StartStream(apiKey, provider.Model, systemPrompt, nil, *promptFlag)
+			client, iter, err := llm.StartStream(cfg.ActiveLLM, apiKey, provider.Model, systemPrompt, nil, *promptFlag)
 			if err != nil {
 				stdlog.Fatalf("error LLM streaming con modelo '%s': %v", provider.Model, err)
 			}
@@ -239,27 +243,18 @@ func main() {
 
 			var outBuf strings.Builder
 			for {
-				resp, err := iter.Next()
-				if err == iterator.Done {
+				chunk, err := iter.Next()
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
 					stdlog.Fatalf("error en stream: %v", err)
 				}
-				if resp == nil || len(resp.Candidates) == 0 {
+				if chunk == "" {
 					continue
 				}
-				cand := resp.Candidates[0]
-				if cand.Content == nil || len(cand.Content.Parts) == 0 {
-					continue
-				}
-				for _, p := range cand.Content.Parts {
-					if t, ok := p.(genai.Text); ok {
-						text := string(t)
-						fmt.Print(text)
-						outBuf.WriteString(text)
-					}
-				}
+				fmt.Print(chunk)
+				outBuf.WriteString(chunk)
 			}
 			fmt.Println()
 			// Guardar salida en archivo

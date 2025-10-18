@@ -91,3 +91,64 @@ func LoadSession(name string) ([]*genai.Content, error) {
 
 	return history, nil
 }
+
+// ListSessions devuelve una lista de nombres de sesiones disponibles (sin la extensión .json).
+func ListSessions() ([]string, error) {
+	sessionsDir, err := getSessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		// Si el directorio no existe aún, devolver lista vacía
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if filepath.Ext(name) == ".json" {
+			base := name[:len(name)-len(".json")]
+			names = append(names, base)
+		}
+	}
+	return names, nil
+}
+
+// DeleteSession elimina la sesión indicada (archivo .json del historial).
+func DeleteSession(name string) error {
+	sessionsDir, err := getSessionsDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(sessionsDir, fmt.Sprintf("%s.json", name))
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+// RenameSession renombra el archivo de sesión de oldName a newName.
+func RenameSession(oldName, newName string) error {
+	if newName == "" {
+		return fmt.Errorf("nuevo nombre de sesión vacío")
+	}
+	sessionsDir, err := getSessionsDir()
+	if err != nil {
+		return err
+	}
+	oldPath := filepath.Join(sessionsDir, fmt.Sprintf("%s.json", oldName))
+	newPath := filepath.Join(sessionsDir, fmt.Sprintf("%s.json", newName))
+	if _, err := os.Stat(oldPath); err != nil {
+		return err
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("ya existe una sesión con el nombre '%s'", newName)
+	}
+	return os.Rename(oldPath, newPath)
+}

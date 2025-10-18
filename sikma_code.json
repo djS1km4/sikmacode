@@ -14,8 +14,13 @@
     "tools": [
       "file:read",
       "file:write",
+      "file:patch",
       "bash:execute",
-      "search:web"
+      "search:web",
+      "ask_user_confirmation",
+      "memory:write",
+      "todo:write",
+      "todo:update"
     ]
   }
 }

@@ -113,6 +113,53 @@ func createDefaultConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// getEnvStorePath devuelve la ruta del archivo donde se almacenan las API keys de forma persistente.
+func getEnvStorePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "sikmacode", "envvars.json"), nil
+}
+
+// SaveEnvVar guarda de forma persistente un par ENV->valor.
+func SaveEnvVar(env, value string) error {
+	path, err := getEnvStorePath()
+	if err != nil {
+		return err
+	}
+	m := map[string]string{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	m[env] = value
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// LoadEnvVar carga el valor almacenado para una ENV si existe.
+func LoadEnvVar(env string) (string, error) {
+	path, err := getEnvStorePath()
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	m := map[string]string{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return "", err
+	}
+	return m[env], nil
+}
+
 // GetActiveAPIKey devuelve la API key del proveedor de LLM activo.
 func (c *Config) GetActiveAPIKey() (string, error) {
 	provider, ok := c.Providers[c.ActiveLLM]
@@ -122,9 +169,14 @@ func (c *Config) GetActiveAPIKey() (string, error) {
 
 	apiKey := os.Getenv(provider.APIKeyEnv)
 	if apiKey == "" {
+		// Fallback: leer del almacén persistente
+		if v, err := LoadEnvVar(provider.APIKeyEnv); err == nil && v != "" {
+			apiKey = v
+		}
+	}
+	if apiKey == "" {
 		return "", errors.New("la variable de entorno para la API key no está configurada: " + provider.APIKeyEnv)
 	}
-
 	return apiKey, nil
 }
 
