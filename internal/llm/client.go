@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -24,6 +25,27 @@ func GenerateResponse(apiKey string, history []*genai.Content, newMessage string
 		modelName = "gemini-2.5-pro"
 	}
 	model := client.GenerativeModel(modelName)
+
+	// GenerationConfig: temperatura y tokens máximos desde entorno
+	tempStr := os.Getenv("TEMPERATURE")
+	maxStr := os.Getenv("MAX_OUTPUT_TOKENS")
+	if tempStr != "" || maxStr != "" {
+		cfg := genai.GenerationConfig{}
+		if tempStr != "" {
+			if f, err := strconv.ParseFloat(tempStr, 32); err == nil {
+				fv := float32(f)
+				cfg.Temperature = &fv
+			}
+		}
+		if maxStr != "" {
+			if i, err := strconv.Atoi(maxStr); err == nil {
+				iv := int32(i)
+				cfg.MaxOutputTokens = &iv
+			}
+		}
+		model.GenerationConfig = cfg
+	}
+
 	cs := model.StartChat()
 	
 	// La historia de la sesión de chat se establece con los mensajes anteriores.
