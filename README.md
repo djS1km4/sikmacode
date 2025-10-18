@@ -45,6 +45,14 @@ Sikma Code es un agente de codificación autónomo construido en Go con una TUI 
 - Gestiona sesiones (archivos en `sessions/`) y reanuda tu trabajo.
 - Observa auditoría y registros en `AGENT_AUDIT.md` y `outputs/*.txt`.
 
+## ⌨️ Atajos de Teclado
+- `Enter`: envía el mensaje y limpia el campo (sin salto de línea).
+- `Esc` o `Ctrl+C`: sale de la aplicación.
+- `↑`/`↓`: desplaza la conversación.
+- `PageUp`/`PageDown`: desplazamiento rápido.
+- `Home`/`End`: ir al inicio/fin del historial.
+- Nota: el `textarea` y el `viewport` heredan atajos estándar de Bubble Tea (flechas y paginación). No se admite salto de línea en el área de entrada por ahora.
+
 ## 📚 Documentación y Roadmap
 - Documentación: `docs/README.md`
 - Hoja de ruta: `docs/roadmap.md`
