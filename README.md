@@ -33,17 +33,41 @@ Sikma Code es un agente de codificación autónomo construido en Go con una TUI 
   ```
 
 ## ⚙️ Configuración
-- Archivo: `sikma_code.json` (en diseño; parámetros: modelo, temperatura, tokens, logs).
 - Variables de entorno:
   - `GEMINI_API_KEY`: clave de Google AI Studio (obligatoria).
   - `MODEL`: nombre del modelo LLM (por defecto `gemini-2.5-pro`).
   - `GLAMOUR_STYLE`: tema para Markdown en la TUI (`dark`, `light`, `dracula`, etc.).
   - `LOG_LEVEL`: `debug|info|warn|error`.
+  - `TEMPERATURE`: valor `float` para control de creatividad (ej. `0.2`).
+  - `MAX_OUTPUT_TOKENS`: límite de tokens de salida (ej. `2048`).
+- Flags CLI:
+  - `--model <nombre>`: fuerza el modelo para la sesión actual.
+  - `--config <ruta>`: carga `sikma_code.json` (por defecto `./sikma_code.json`).
+  - `--temperature <float>`: establece `TEMPERATURE`.
+  - `--max-tokens <int>`: establece `MAX_OUTPUT_TOKENS`.
+- Prioridades de configuración (de mayor a menor): `flags` > `entorno` > `JSON` > `por defecto`.
+- Archivo de configuración (`sikma_code.json`):
+  ```json
+  {
+    "model": "gemini-2.5-pro",
+    "temperature": 0.2,
+    "max_output_tokens": 2048
+  }
+  ```
 - Ejemplos (PowerShell):
   ```powershell
+  # Mínimo para correr (API key obligatoria)
   $env:GEMINI_API_KEY = "<tu_api_key>"
-  $env:MODEL = "gemini-2.5-flash"
-  $env:GLAMOUR_STYLE = "dark"
+  
+  # Forzar modelo y parámetros vía flags (prioridad máxima)
+  .\sikmacode.exe --model "gemini-2.5-flash" --temperature 0.2 --max-tokens 2048
+  
+  # Usar archivo JSON (por defecto ./sikma_code.json o con --config)
+  .\sikmacode.exe --config ".\sikma_code.json"
+  
+  # Fallback vía entorno si no hay flags
+  $env:TEMPERATURE = "0.3"; $env:MAX_OUTPUT_TOKENS = "1024"
+  .\sikmacode.exe
   ```
 
 ## 🖥️ Uso Rápido (TUI)
