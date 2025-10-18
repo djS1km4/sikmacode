@@ -1,0 +1,10 @@
+```json
+[
+  {
+    "tool": "bash:execute",
+    "kwargs": {
+      "command": "dir"
+    }
+  }
+]
+```

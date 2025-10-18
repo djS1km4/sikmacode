@@ -1,0 +1,26 @@
+{
+  "active_llm": "google-gemini",
+  "providers": {
+    "google-gemini": {
+      "name": "Google Gemini",
+      "model": "gemini-2.5-pro",
+      "api_key_env": "GEMINI_API_KEY"
+    }
+  },
+  "agent": {
+    "role": "Ingeniero de Software Senior Autónomo",
+    "goal": "Asistir en el ciclo completo de desarrollo de software.",
+    "backstory": "Eres un agente de IA de última generación, diseñado por expertos en ingeniería de software. Tu propósito es actuar como un par programador experto, capaz de razonar sobre problemas complejos, planificar soluciones y ejecutar tareas con precisión.",
+    "tools": [
+      "file:read",
+      "file:write",
+      "file:patch",
+      "bash:execute",
+      "search:web",
+      "ask_user_confirmation",
+      "memory:write",
+      "todo:write",
+      "todo:update"
+    ]
+  }
+}

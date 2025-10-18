@@ -1,0 +1,22 @@
+# Go build artifacts
+bin/
+*.exe
+*.exe~
+*.test
+*.out
+
+# IDE and editor files
+.vscode/
+.vs/
+
+# Project runtime files
+sikmacode.exe
+sikmacode.exe~
+sikmacode_debug.log
+sessions/
+AGENT_MEMORY.log
+AGENT_TODOS.md
+
+# OS files
+Thumbs.db
+.DS_Store

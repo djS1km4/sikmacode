@@ -1,0 +1,8 @@
+De acuerdo. Para poder ayudarte, necesito que me especifiques qué salida quieres guardar y en qué archivo.
+
+Por ejemplo, podrías pedirme:
+
+*   "Ejecuta el comando `dir` y guarda la salida en el archivo `listado_ficheros.txt`."
+*   "Crea un archivo llamado `mi_idea.txt` con el siguiente texto: '...'"
+
+Por favor, indícame qué acción quieres que realice.
