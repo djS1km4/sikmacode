@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/glamour"
 	"github.com/google/generative-ai-go/genai"
 )
 
@@ -30,6 +31,7 @@ type Model struct {
 	styles      Styles
 	apiKey      string
 	err         error
+	renderer    *glamour.TermRenderer
 }
 
 func NewModel() Model {
@@ -57,12 +59,16 @@ API Key detectada. Escribe un mensaje para comenzar.`)
 
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
+	// Inicializa el renderer Markdown de Glamour a partir del entorno.
+	r, _ := glamour.NewTermRenderer(glamour.WithEnvironmentConfig())
+
 	return Model{
 		textarea: ta,
 		viewport: vp,
 		styles:   styles,
 		apiKey:   apiKey,
 		messages: make([]*genai.Content, 0),
+		renderer: r,
 	}
 }
 
@@ -137,7 +143,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateViewport actualiza el contenido del viewport con el historial de mensajes.
 func (m *Model) updateViewport() {
-	var content strings.Builder
+	var md strings.Builder
 	for _, msg := range m.messages {
 		role := "🤖"
 		if msg.Role == "user" {
@@ -145,11 +151,21 @@ func (m *Model) updateViewport() {
 		}
 		if len(msg.Parts) > 0 {
 			if txt, ok := msg.Parts[0].(genai.Text); ok {
-				content.WriteString(fmt.Sprintf("**%s**:\n%s\n\n", role, string(txt)))
+				// Construye contenido Markdown con énfasis en el rol
+				md.WriteString(fmt.Sprintf("**%s**\n\n%s\n\n", role, string(txt)))
 			}
 		}
 	}
-	m.viewport.SetContent(content.String())
+	// Renderiza Markdown a salida con estilo usando Glamour
+	if m.renderer != nil {
+		if rendered, err := m.renderer.Render(md.String()); err == nil {
+			m.viewport.SetContent(rendered)
+		} else {
+			m.viewport.SetContent(md.String())
+		}
+	} else {
+		m.viewport.SetContent(md.String())
+	}
 	m.viewport.GotoBottom()
 }
 

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -17,7 +18,12 @@ func GenerateResponse(apiKey string, history []*genai.Content, newMessage string
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.5-pro")
+	// Selección dinámica del modelo vía env MODEL; por defecto gemini-2.5-pro
+	modelName := os.Getenv("MODEL")
+	if modelName == "" {
+		modelName = "gemini-2.5-pro"
+	}
+	model := client.GenerativeModel(modelName)
 	cs := model.StartChat()
 	
 	// La historia de la sesión de chat se establece con los mensajes anteriores.
