@@ -3,17 +3,19 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"regexp"
 	"strings"
 	"time"
-	"regexp"
-	"math/rand"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/djS1km4/sikmacode/internal/agent"
 	"github.com/djS1km4/sikmacode/internal/config"
 	"github.com/djS1km4/sikmacode/internal/llm"
@@ -23,16 +25,18 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-const logo = `░██████╗██╗██╗░░██╗███╗░░░███╗░█████╗░░█████╗░░█████╗░██████╗░███████╗
+const logo = `
+░██████╗██╗██╗░░██╗███╗░░░███╗░█████╗░░█████╗░░█████╗░██████╗░███████╗
 ██╔════╝██║██║░██╔╝████╗░████║██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔════╝
 ╚█████╗░██║█████═╝░██╔████╔██║███████║██║░░╚═╝██║░░██║██║░░██║█████╗░░
 ░╚═══██╗██║██╔═██╗░██║╚██╔╝██║██╔══██║██║░░██╗██║░░██║██║░░██║██╔══╝░░
 ██████╔╝██║██║░╚██╗██║░╚═╝░██║██║░░██║╚█████╔╝╚█████╔╝██████╔╝███████╗
-╚═════╝░╚═╝╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░░╚════╝░╚══════╝`
+╚═════╝░╚═╝╚═╝░░╚═╝╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░░╚════╝░╚══════╝
+`
 
-const smallLogo = "≧ ◉ ◡ ◉ ≦"
+const smallLogo = "≧◉◡◉≦"
 
-type completionMsg struct{
+type completionMsg struct {
 	content string
 }
 
@@ -44,8 +48,16 @@ type errorMsg struct {
 type streamChunkMsg struct{ chunk string }
 type streamDoneMsg struct{}
 
-// Nuevo: mensaje de tick para barra de carga
 type loadingTickMsg struct{ frame string }
+
+// Nuevo: mensaje de frase de pensamiento
+type thinkingTickMsg struct{ phrase string }
+
+// Nuevo: animación de chips
+type chipAnimTickMsg struct{}
+// Nuevo: parpadeo de kaomoji
+type kaomojiBlinkMsg struct{}
+type kaomojiResetMsg struct{}
 
 func (e errorMsg) Error() string { return e.err.Error() }
 
@@ -67,21 +79,40 @@ type appModel struct {
 	allowedTools     map[string]bool
 	agent            *agent.Agent
 	err              error
-	width, height     int
+	width, height    int
 	// Streaming
-	isStreaming      bool
-	streamBuffer     strings.Builder
-	streamClient     *genai.Client
-	streamIter       *genai.GenerateContentResponseIterator
+	isStreaming  bool
+	streamBuffer strings.Builder
+	streamClient *genai.Client
+	streamIter   *genai.GenerateContentResponseIterator
 	// Barra de carga
-	loadingBar       string
+	loadingBar string
 	// Precarga (antes de responder)
-	isPreloading     bool
-	preloadText      string
+	isPreloading bool
+	preloadText  string
+	// Texto motivacional en cabecera durante pensamiento
+	thinkingPhrase string
+	streamStart    time.Time
+	// Metadatos última respuesta para chips
+	lastResponseDuration    time.Duration
+	lastResponseTokenApprox int
+	lastResponseProvider    string
+	lastResponseModel       string
 	// Ayuda
-	showHelp         bool
+	showHelp bool
 	// Seguridad UX
 	awaitingDoubleConfirm bool
+	// Spinner visual
+	spin spinner.Model
+	// Tema/acento actual
+	themeAccentIdx int
+	// Progreso animado (Harmonica via Bubbles)
+	prog progress.Model
+	// Nuevo: offset de animación para chips
+	chipAnimOffset int
+	// Nuevo: kaomoji actual (para parpadeo sutil)
+	currentKao string
+	kaoDoDouble bool
 }
 
 func NewAppModel(sessionName string) *appModel {
@@ -96,6 +127,16 @@ func NewAppModel(sessionName string) *appModel {
 
 	vp := viewport.New(80, 20)
 	ta.KeyMap.InsertNewline.SetEnabled(false)
+
+	// Inicializar spinner visual
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("178"))
+	// Progreso con gradiente y resorte
+	pr := progress.New(
+		progress.WithDefaultScaledGradient(),
+		progress.WithSpringOptions(6.0, 0.5),
+	)
 
 	cfg, _ := config.LoadConfig()
 	var apiKey string
@@ -117,7 +158,7 @@ func NewAppModel(sessionName string) *appModel {
 	if cfg != nil {
 		agentInstance = agent.NewAgent(cfg.Agent)
 	}
-// Sembrar aleatoriedad para barras y precarga
+	// Sembrar aleatoriedad para barras y precarga
 	rand.Seed(time.Now().UnixNano())
 
 	return &appModel{
@@ -133,11 +174,17 @@ func NewAppModel(sessionName string) *appModel {
 		isSplashVisible: true,
 		allowedTools:    make(map[string]bool),
 		agent:           agentInstance,
+		spin:            sp,
+		themeAccentIdx:  0,
+		prog:            pr,
+		chipAnimOffset:  0,
+		currentKao:      "≧◉◡◉≦",
+		kaoDoDouble:     false,
 	}
 }
 
 func (m *appModel) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, m.kaomojiIdleTickCmd())
 }
 
 // Comando para iniciar streaming
@@ -160,9 +207,10 @@ func (m *appModel) startStreamCmd(userInput string) tea.Cmd {
 		m.streamIter = iter
 		m.isStreaming = true
 		m.streamBuffer.Reset()
-		// Inicializar barra de carga
 		m.loadingBar = randomBar(15)
-		// Leer primer chunk
+		m.streamStart = time.Now()
+		// Frase inicial mientras piensa
+		m.thinkingPhrase = randomThinkingPhrase()
 		return m.readNextStreamChunkMsg()
 	}
 }
@@ -189,6 +237,12 @@ func (m *appModel) readNextStreamChunkMsg() tea.Msg {
 	return streamChunkMsg{chunk: chunk.String()}
 }
 
+func (m *appModel) preloadTickCmd() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return preloadTickMsg{text: randomAlphaNum(16)}
+	})
+}
+
 // nextStreamChunkCmd moved to bottom of file to group with tick utilities
 
 // sanitizeAgentText elimina bloques JSON de tool-calls del texto del agente.
@@ -196,7 +250,7 @@ func sanitizeAgentText(s string) string {
 	// Remover bloques con fences ```json ... ```
 	reFenceArray := regexp.MustCompile("(?s)```json\\s*\\[.*?\\]\\s*```")
 	s = reFenceArray.ReplaceAllString(s, "")
-	reFenceObject := regexp.MustCompile("(?s)```json\\s*\\{[\\s\\S]*?\\}" )
+	reFenceObject := regexp.MustCompile("(?s)```json\\s*\\{[\\s\\S]*?\\}")
 	s = reFenceObject.ReplaceAllString(s, "")
 	// Remover JSON plano que contenga la clave \"tool\"
 	rePlainArray := regexp.MustCompile(`(?s)\[\s*\{[\s\S]*?"tool"[\s\S]*?\}\s*\]`)
@@ -235,7 +289,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		headerHeight := lipgloss.Height(m.headerView())
 		footerHeight := lipgloss.Height(m.footerView())
-		
+
 		mainContentHeight := m.height - headerHeight - footerHeight
 		availableWidth := m.width - m.styles.AppStyle.GetHorizontalFrameSize()
 		availableHeight := mainContentHeight - m.styles.AppStyle.GetVerticalFrameSize()
@@ -248,7 +302,15 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewport.Height < 3 {
 			m.viewport.Height = 3
 		}
-
+		// Ajustar ancho de barra de progreso en header (compacta)
+		pw := availableWidth / 8
+		if pw < 10 {
+			pw = 10
+		}
+		if pw > 20 {
+			pw = 20
+		}
+		m.prog.Width = pw
 		if !m.isReady {
 			m.updateViewport()
 			m.isReady = true
@@ -344,12 +406,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamChunkMsg:
 		if msg.chunk != "" {
 			m.streamBuffer.WriteString(msg.chunk)
-			// Apagar precarga al llegar el primer chunk
 			m.isPreloading = false
 			m.preloadText = ""
 			m.updateViewport()
 		}
-		return m, tea.Batch(m.nextStreamChunkCmd(), m.loadingTickCmd())
+		return m, tea.Batch(m.nextStreamChunkCmd(), m.loadingTickCmd(), m.spin.Tick)
 
 	case streamDoneMsg:
 		if m.streamClient != nil {
@@ -439,13 +500,38 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		// Registrar metadatos para chips
+		m.lastResponseDuration = time.Since(m.streamStart)
+		if m.config != nil {
+			if p, ok := m.config.Providers[m.config.ActiveLLM]; ok {
+				m.lastResponseProvider = p.Name
+				m.lastResponseModel = p.Model
+			}
+		}
+		// Aproximación simple de tokens
+		runes := []rune(finalText)
+		m.lastResponseTokenApprox = len(runes) / 4
 		m.isStreaming = false
-	m.streamIter = nil
-	m.loadingBar = ""
-	m.isPreloading = false
-	m.preloadText = ""
-	m.updateViewport()
-	return m, nil
+		m.streamIter = nil
+		m.loadingBar = ""
+		m.isPreloading = false
+		m.preloadText = ""
+		m.thinkingPhrase = ""
+		// Iniciar animación de chips al finalizar streaming
+		m.chipAnimOffset = 10
+		// Animar progreso al 100%
+		pcmd := m.prog.SetPercent(1.0)
+		m.updateViewport()
+		return m, tea.Batch(m.chipAnimTickCmd(), pcmd)
+
+	case thinkingTickMsg:
+		// Actualizar frase solo durante el pensamiento (precarga)
+		if m.isPreloading {
+			m.thinkingPhrase = msg.phrase
+			m.updateViewport()
+			return m, m.thinkingTickCmd()
+		}
+		return m, nil
 
 	case preloadTickMsg:
 		if m.isPreloading {
@@ -458,10 +544,37 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadingTickMsg:
 		m.loadingBar = msg.frame
 		if m.isStreaming {
+			var pcmd tea.Cmd
+			if m.prog.Percent() >= 0.95 {
+				pcmd = m.prog.SetPercent(0)
+			} else {
+				pcmd = m.prog.IncrPercent(0.06)
+			}
 			m.updateViewport()
-			return m, m.loadingTickCmd()
+			return m, tea.Batch(m.loadingTickCmd(), pcmd, m.spin.Tick)
 		}
 		return m, nil
+
+	case chipAnimTickMsg:
+		if m.chipAnimOffset > 0 {
+			m.chipAnimOffset--
+			m.updateViewport()
+			return m, m.chipAnimTickCmd()
+		}
+		return m, nil
+
+	// Parpadeo sutil del kaomoji
+	case kaomojiBlinkMsg:
+		m.currentKao = m.buildKao(false)
+		return m, m.kaomojiResetTickCmd()
+	case kaomojiResetMsg:
+		m.currentKao = m.buildKao(true)
+		// Si está marcado un doble parpadeo, disparamos un segundo parpadeo pronto.
+		if m.kaoDoDouble {
+			m.kaoDoDouble = false
+			return m, m.kaomojiSecondBlinkTickCmd()
+		}
+		return m, m.kaomojiIdleTickCmd()
 
 	case errorMsg:
 		m.err = msg
@@ -536,6 +649,10 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keyMap.Help):
 			m.showHelp = !m.showHelp
 			return m, nil
+		case key.Matches(msg, m.keyMap.Theme):
+			m.cycleAccentTheme()
+			m.updateViewport()
+			return m, nil
 		case msg.Type == tea.KeyEnter:
 			userInput := m.textarea.Value()
 			trimmed := strings.TrimSpace(userInput)
@@ -550,16 +667,25 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.updateViewport()
 			m.textarea.Reset()
-			// Encender precarga alfanumérica antes de responder
 			m.isPreloading = true
 			m.preloadText = randomAlphaNum(16)
-			return m, tea.Batch(m.startStreamCmd(userInput), m.preloadTickCmd())
+			// Programar spinner y frase desde el inicio del pensamiento
+			return m, tea.Batch(m.startStreamCmd(userInput), m.preloadTickCmd(), m.loadingTickCmd(), m.spin.Tick, m.thinkingTickCmd(), m.prog.SetPercent(0.0))
 		}
 	}
 
 	m.textarea, tiCmd = m.textarea.Update(msg)
 	m.viewport, vpCmd = m.viewport.Update(msg)
-	cmds = append(cmds, tiCmd, vpCmd)
+	var spCmd tea.Cmd
+	m.spin, spCmd = m.spin.Update(msg)
+	// Ajuste: progress.Update devuelve tea.Model, hacemos type assert
+	var prCmd tea.Cmd
+	var progModel tea.Model
+	progModel, prCmd = m.prog.Update(msg)
+	if pm, ok := progModel.(progress.Model); ok {
+		m.prog = pm
+	}
+	cmds = append(cmds, tiCmd, vpCmd, spCmd, prCmd)
 
 	return m, tea.Batch(cmds...)
 }
@@ -605,15 +731,16 @@ func (m *appModel) updateViewport() {
 	}
 	// Mostrar precarga alfanumérica (antes de responder)
 	if m.isPreloading {
-	pre := m.styles.LoadingStyle.Render(m.preloadText)
-	if content.Len() > 0 {
-	content.WriteString("\n\n---\n\n")
+		if content.Len() > 0 {
+			content.WriteString("\n\n---\n\n")
+		}
+		phrase := m.styles.ThinkingStyle.Render(m.thinkingPhrase)
+		line := fmt.Sprintf("%s %s", m.spin.View(), phrase)
+		content.WriteString(line + "\n")
+		pre := m.styles.LoadingStyle.Render(m.preloadText)
+		content.WriteString(pre)
 	}
-	formattedRole := m.styles.AgentRole.Render("🤖 Agente")
-	content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, pre))
-	}
- 	// Añadir buffer de streaming en vivo
-	printedStreaming := false
+	// Añadir buffer de streaming en vivo
 	if m.isStreaming && m.streamBuffer.Len() > 0 {
 		formattedRole := m.styles.AgentRole.Render("🤖 Agente")
 		raw := m.streamBuffer.String()
@@ -632,25 +759,31 @@ func (m *appModel) updateViewport() {
 				content.WriteString("\n\n---\n\n")
 			}
 			content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, rendered))
-			printedStreaming = true
 		}
 	}
-	// Añadir barra de carga dinámica cuando está en streaming
-	if m.isStreaming {
-		bar := m.styles.LoadingStyle.Render(m.loadingBar)
-		if printedStreaming {
-			content.WriteString("\n" + bar)
-		} else {
-			// No se imprimió contenido del agente aún; mostrar etiqueta y barra
-			if content.Len() > 0 {
-				content.WriteString("\n\n---\n\n")
-			}
-			formattedRole := m.styles.AgentRole.Render("🤖 Agente")
-			content.WriteString(fmt.Sprintf("%s:\n%s", formattedRole, bar))
+	// Nota: La barra de progreso se mueve al footer para evitar duplicación
+	// Chips de estado (al final) cuando no está streameando
+	if !m.isStreaming && m.lastResponseDuration > 0 {
+		mins := int(m.lastResponseDuration.Minutes())
+		secs := int(m.lastResponseDuration.Seconds()) % 60
+		chips := []string{
+			fmt.Sprintf("⏱ %02d:%02d", mins, secs),
 		}
+		// Mostrar solo el modelo (sin proveedor) para evitar duplicaciones visuales
+		if m.lastResponseModel != "" {
+			chips = append(chips, fmt.Sprintf("⚙️ %s", m.lastResponseModel))
+		}
+		if m.lastResponseTokenApprox > 0 {
+			chips = append(chips, fmt.Sprintf("🔤 ~%d tok", m.lastResponseTokenApprox))
+		}
+		chipLine := m.styles.ChipStyle.Render(strings.Join(chips, "  "))
+		animated := lipgloss.NewStyle().MarginLeft(m.chipAnimOffset).Render(chipLine)
+		if content.Len() > 0 {
+			content.WriteString("\n\n")
+		}
+		content.WriteString(animated)
 	}
 	m.viewport.SetContent(content.String())
-	// Evitar pánico si la altura es muy pequeña
 	if m.viewport.Height > 0 {
 		m.viewport.GotoBottom()
 	}
@@ -662,18 +795,29 @@ func (m *appModel) headerView() string {
 		return lipgloss.JoinVertical(lipgloss.Center, logoStyle.Render(logo), "\nBienvenido a SikmaCode - una nueva experiencia de IA")
 	}
 
-	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
-	leftSide := logoStyle.Render(smallLogo) + "  " + m.sessionName
-
-	timeStr := time.Now().Format("15:04:05")
-	provider := m.config.Providers[m.config.ActiveLLM]
-	modelName := provider.Model
-	providerName := provider.Name
-	status := "Idle"
-	if m.isStreaming {
-		status = "Streaming"
+	// Kaomoji a la izquierda; a la derecha: ID, LLM (solo modelo), hora y progreso
+	kao := m.currentKao
+	leftSide := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(kao)
+	session := m.sessionName
+	llm := "—"
+	if m.config != nil {
+		llm = m.config.ActiveLLM
+		if llm == "" {
+			if p, ok := m.config.Providers[m.config.ActiveLLM]; ok {
+				llm = p.Name
+			}
+		}
 	}
-	rightSide := fmt.Sprintf("%s (%s) | %s | %s", providerName, modelName, timeStr, status)
+	if strings.Contains(llm, "/") {
+		parts := strings.Split(llm, "/")
+		llm = parts[len(parts)-1]
+	}
+	clock := time.Now().Format("15:04:05")
+	rightText := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(
+		fmt.Sprintf("%s | %s | %s ", session, llm, clock),
+	)
+	prog := m.prog.View()
+	rightSide := lipgloss.JoinHorizontal(lipgloss.Top, rightText, prog)
 
 	leftWidth := lipgloss.Width(leftSide)
 	rightWidth := lipgloss.Width(rightSide)
@@ -681,16 +825,60 @@ func (m *appModel) headerView() string {
 
 	spacerWidth := totalWidth - leftWidth - rightWidth
 	if spacerWidth < 0 {
-			spacerWidth = 0
+		spacerWidth = 0
 	}
 	spacer := strings.Repeat(" ", spacerWidth)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftSide, spacer, rightSide)
 }
 
+func (m *appModel) thinkingTickCmd() tea.Cmd {
+	return tea.Tick(4000*time.Millisecond, func(t time.Time) tea.Msg {
+		return thinkingTickMsg{phrase: randomThinkingPhrase()}
+	})
+}
+
+func (m *appModel) chipAnimTickCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg { return chipAnimTickMsg{} })
+}
+
 func (m *appModel) footerView() string {
-	help := "[Ctrl+S guardar] [Ctrl+C/Esc salir] [Ayuda: F1]"
+	help := "[Ctrl+S guardar] [Ctrl+C/Esc salir] [Ayuda: F1] [F2 tema]"
 	return m.styles.FooterStyle.Render(help)
+}
+
+
+// Construye el kaomoji con ojos abiertos/cerrados sin cambiar ancho
+func (m *appModel) buildKao(open bool) string {
+	if open {
+		return "≧◉◡◉≦"
+	}
+	// Variante de ojos cerrados, manteniendo longitud de 5 runas
+	return "≧˘◡˘≦"
+}
+
+
+func (m *appModel) kaomojiIdleTickCmd() tea.Cmd {
+	// Periodo más largo y natural: 6–11s con jitter
+	dur := time.Duration(6000+rand.Intn(5000)) * time.Millisecond
+	return tea.Tick(dur, func(t time.Time) tea.Msg {
+		// Probabilidad baja de doble parpadeo ocasional (1 de cada 10 aprox.)
+		m.kaoDoDouble = rand.Intn(10) == 0
+		return kaomojiBlinkMsg{}
+	})
+}
+
+func (m *appModel) kaomojiResetTickCmd() tea.Cmd {
+	// Cierre más lento y suave: 180–300ms
+	dur := time.Duration(180+rand.Intn(120)) * time.Millisecond
+	return tea.Tick(dur, func(t time.Time) tea.Msg { return kaomojiResetMsg{} })
+}
+
+// Segundo parpadeo rápido para el doble parpadeo ocasional
+func (m *appModel) kaomojiSecondBlinkTickCmd() tea.Cmd {
+	// Pausa breve antes del segundo parpadeo: 220–320ms
+	dur := time.Duration(220+rand.Intn(100)) * time.Millisecond
+	return tea.Tick(dur, func(t time.Time) tea.Msg { return kaomojiBlinkMsg{} })
 }
 
 func (m *appModel) View() string {
@@ -732,6 +920,7 @@ func (m *appModel) View() string {
 			"- Ctrl+C / Esc: salir",
 			"- F1: mostrar/ocultar esta ayuda",
 			"- /help: alterna ayuda desde el prompt",
+			"- F2: alternar tema",
 			"",
 			"Confirmaciones:",
 			"- s/y: sí",
@@ -740,7 +929,7 @@ func (m *appModel) View() string {
 			"- Nota: comandos críticos requieren doble confirmación",
 			"",
 			"Estado:",
-			"- Header muestra proveedor/modelo, hora y estado (Idle/Streaming)",
+			"- Header: kaomoji a la izquierda; derecha: ID, LLM, hora y progreso",
 		}, "\n")
 		dialogBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -776,21 +965,18 @@ func (m *appModel) View() string {
 	)
 }
 
-
 func (m *appModel) nextStreamChunkCmd() tea.Cmd {
 	return func() tea.Msg { return m.readNextStreamChunkMsg() }
 }
 
-// Nuevo: comando tick para actualizar barra de carga
 func (m *appModel) loadingTickCmd() tea.Cmd {
 	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 		return loadingTickMsg{frame: randomBar(15)}
 	})
 }
 
-// Genera una barra de 15 caracteres con símbolos aleatorios
 func randomBar(n int) string {
-	chars := []rune{'█','▓','▒','░','─','━','╌','╍','▌','▐','▍','▎','▏'}
+	chars := []rune{'█', '▓', '▒', '░', '─', '━', '╌', '╍', '▌', '▐', '▍', '▎', '▏'}
 	var b strings.Builder
 	for i := 0; i < n; i++ {
 		b.WriteRune(chars[rand.Intn(len(chars))])
@@ -798,14 +984,6 @@ func randomBar(n int) string {
 	return b.String()
 }
 
-// Nuevo: comando tick para precarga alfanumérica
-func (m *appModel) preloadTickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return preloadTickMsg{ text: randomAlphaNum(16) }
-	})
-}
-
-// Genera una cadena alfanumérica aleatoria de n caracteres
 func randomAlphaNum(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	var b strings.Builder
@@ -815,5 +993,46 @@ func randomAlphaNum(n int) string {
 	return b.String()
 }
 
-// Nuevo: mensaje de precarga alfanumérica antes de responder
+func randomThinkingPhrase() string {
+	phrases := []string{
+		"Desplegando mi arsenal tecnológico",
+		"Enrutando datos para la mejor respuesta",
+		"Activando mi modo desarrollador",
+		"Compilando ideas en tiempo real",
+		"Sintonizando con el problema",
+		"Buscando patrones óptimos",
+		"Analizando contexto y dependencias",
+		"Refinando lógica de solución",
+		"Alineando argumentos y ejemplos",
+		"Calculando caminos eficientes",
+		"Cargando herramientas de análisis",
+		"Indexando conocimiento relevante",
+		"Verificando supuestos",
+		"Preparando estrategia de respuesta",
+		"Trazando el flujo óptimo",
+		"Modelando casos edge",
+		"Puliendo claridad y precisión",
+		"Validando coherencia técnica",
+		"Ajustando tono y formato",
+		"Estructurando pasos accionables",
+		"Curando referencias útiles",
+		"Midiendo impacto y riesgos",
+		"Seleccionando mejores prácticas",
+		"Sincronizando estilo y contenido",
+		"Afinando detalles finales",
+		"Checklist de calidad listo",
+	}
+	return phrases[rand.Intn(len(phrases))]
+}
+
 type preloadTickMsg struct{ text string }
+
+func (m *appModel) cycleAccentTheme() {
+	palette := []string{"178", "81", "135", "201", "86"}
+	m.themeAccentIdx = (m.themeAccentIdx + 1) % len(palette)
+	color := lipgloss.Color(palette[m.themeAccentIdx])
+	m.styles.AgentRole = m.styles.AgentRole.Foreground(color).Bold(true)
+	m.styles.ThinkingStyle = m.styles.ThinkingStyle.Foreground(color).Bold(true)
+	m.styles.AppStyle = m.styles.AppStyle.BorderForeground(color)
+	m.spin.Style = lipgloss.NewStyle().Foreground(color)
+}

@@ -12,6 +12,8 @@ type Styles struct {
 	FooterStyle   lipgloss.Style
 	DividerStyle  lipgloss.Style
 	LoadingStyle  lipgloss.Style
+	ThinkingStyle lipgloss.Style
+	ChipStyle     lipgloss.Style
 }
 
 // DefaultStyles devuelve un conjunto de estilos predeterminados.
@@ -43,5 +45,12 @@ func DefaultStyles() Styles {
 		LoadingStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("248")).
 			Italic(true),
+		ThinkingStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("135")). // Magenta/violeta más oscuro para calma
+			Bold(true),
+		ChipStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Padding(0, 0).
+			MarginTop(1),
 	}
 }
