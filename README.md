@@ -33,14 +33,22 @@ Sikma Code es un agente de codificación autónomo construido en Go con una TUI 
   ```
 
 ## ⚙️ Configuración
-- Archivo: `sikma_code.json` (parámetros generales: modelo, temperatura, tokens, logs).
-- Variables de entorno (según proveedor):
-  - `API_KEY` o `GEMINI_API_KEY` (si usas Google AI Studio)
-  - `MODEL` (modelo por defecto)
-  - `LOG_LEVEL` (`debug|info|warn|error`)
+- Archivo: `sikma_code.json` (en diseño; parámetros: modelo, temperatura, tokens, logs).
+- Variables de entorno:
+  - `GEMINI_API_KEY`: clave de Google AI Studio (obligatoria).
+  - `MODEL`: nombre del modelo LLM (por defecto `gemini-2.5-pro`).
+  - `GLAMOUR_STYLE`: tema para Markdown en la TUI (`dark`, `light`, `dracula`, etc.).
+  - `LOG_LEVEL`: `debug|info|warn|error`.
+- Ejemplos (PowerShell):
+  ```powershell
+  $env:GEMINI_API_KEY = "<tu_api_key>"
+  $env:MODEL = "gemini-2.5-flash"
+  $env:GLAMOUR_STYLE = "dark"
+  ```
 
 ## 🖥️ Uso Rápido (TUI)
 - Navegación con flechas, `Enter`, `Esc`, `Tab`.
+- Respuestas se muestran con Markdown estilizado en el `viewport` (Glamour).
 - Cambia modelo y parámetros desde el menú.
 - Gestiona sesiones (archivos en `sessions/`) y reanuda tu trabajo.
 - Observa auditoría y registros en `AGENT_AUDIT.md` y `outputs/*.txt`.
@@ -54,9 +62,9 @@ Sikma Code es un agente de codificación autónomo construido en Go con una TUI 
 - Nota: el `textarea` y el `viewport` heredan atajos estándar de Bubble Tea (flechas y paginación). No se admite salto de línea en el área de entrada por ahora.
 
 ## 📚 Documentación y Roadmap
-- Documentación: `docs/README.md`
-- Hoja de ruta: `docs/roadmap.md`
-- Guía de configuración: `docs/configuracion_agente_llm_autonomo.md`
+- Auditoría y plan: `docs/auditoria_avance_sikmacode.md`
+- Hoja de ruta: `docs/hoja de ruta SikmaCode.md`
+- Guía de configuración: `docs/Configuración Agente LLM Autónomo.md`
 - Análisis y plan: `docs/analisis_y_plan_desarrollo_sikmacode.md`
 - Informe CLI/TUI: `docs/informe_cli_sikma.md`
 
