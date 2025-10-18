@@ -37,6 +37,12 @@ func main() {
 	logLevelFlag := flag.String("log-level", "", "Nivel de log: error|warn|info|debug")
 	doctorFlag := flag.Bool("doctor", false, "Valida el entorno (configuración, API key, provider/modelo, permisos de salida)")
 	doctorJSONFlag := flag.Bool("doctor-json", false, "Salida del doctor en JSON")
+	doctorNetworkFlag := flag.Bool("doctor-network", false, "Valida conectividad al proveedor/modelo LLM")
+	mdThemeFlag := flag.String("md-theme", "", "Tema de Glamour para Markdown (auto|dark|light|dracula|...).")
+	denyAddFlag := flag.String("deny-add", "", "Agrega comandos a denylist (coma-separados)")
+	denyRemoveFlag := flag.String("deny-remove", "", "Remueve comandos de denylist (coma-separados)")
+	criticalAddFlag := flag.String("critical-add", "", "Agrega comandos críticos (coma-separados)")
+	criticalRemoveFlag := flag.String("critical-remove", "", "Remueve comandos críticos (coma-separados)")
 	flag.Parse()
 
 	// Doctor: validación temprana del entorno
@@ -45,6 +51,17 @@ func main() {
 			stdlog.Fatalf("doctor reporta errores: %v", err)
 		}
 		return
+	}
+	// Nuevo bloque: doctor-network
+	if *doctorNetworkFlag {
+		if err := runDoctorNetwork(*doctorJSONFlag); err != nil {
+			stdlog.Fatalf("doctor-network reporta errores: %v", err)
+		}
+		return
+	}
+	// --md-theme: configurar estilo de Glamour por entorno
+	if *mdThemeFlag != "" {
+		os.Setenv("GLAMOUR_STYLE", *mdThemeFlag)
 	}
 
 	// --debug / --log-level: habilitar salida de log por stdout
@@ -117,6 +134,66 @@ func main() {
 			stdlog.Fatalf("no se pudo guardar configuración: %v", err)
 		}
 		fmt.Printf("Timeout por defecto actualizado a %d segundos.\n", *timeoutFlag)
+	}
+	// NUEVO: gestión de listas de seguridad (denylist/critical)
+	if *denyAddFlag != "" || *denyRemoveFlag != "" || *criticalAddFlag != "" || *criticalRemoveFlag != "" {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			stdlog.Fatalf("no se pudo cargar configuración: %v", err)
+		}
+		// helpers
+		split := func(s string) []string {
+			var r []string
+			for _, x := range strings.Split(s, ",") {
+				x = strings.TrimSpace(x)
+				if x != "" {
+					r = append(r, x)
+				}
+			}
+			return r
+		}
+		// update denylist
+		if *denyAddFlag != "" {
+			adds := split(*denyAddFlag)
+			set := make(map[string]struct{})
+			for _, v := range cfg.Security.Denylist { set[v] = struct{}{} }
+			for _, v := range adds { set[v] = struct{}{} }
+			cfg.Security.Denylist = make([]string, 0, len(set))
+			for v := range set { cfg.Security.Denylist = append(cfg.Security.Denylist, v) }
+		}
+		if *denyRemoveFlag != "" {
+			rem := split(*denyRemoveFlag)
+			remove := make(map[string]struct{})
+			for _, v := range rem { remove[v] = struct{}{} }
+			var nl []string
+			for _, v := range cfg.Security.Denylist {
+				if _, ok := remove[v]; !ok { nl = append(nl, v) }
+			}
+			cfg.Security.Denylist = nl
+		}
+		// update critical
+		if *criticalAddFlag != "" {
+			adds := split(*criticalAddFlag)
+			set := make(map[string]struct{})
+			for _, v := range cfg.Security.Critical { set[v] = struct{}{} }
+			for _, v := range adds { set[v] = struct{}{} }
+			cfg.Security.Critical = make([]string, 0, len(set))
+			for v := range set { cfg.Security.Critical = append(cfg.Security.Critical, v) }
+		}
+		if *criticalRemoveFlag != "" {
+			rem := split(*criticalRemoveFlag)
+			remove := make(map[string]struct{})
+			for _, v := range rem { remove[v] = struct{}{} }
+			var cl []string
+			for _, v := range cfg.Security.Critical {
+				if _, ok := remove[v]; !ok { cl = append(cl, v) }
+			}
+			cfg.Security.Critical = cl
+		}
+		if err := config.SaveConfig(cfg); err != nil {
+			stdlog.Fatalf("no se pudo guardar configuración: %v", err)
+		}
+		fmt.Println("Listas de seguridad actualizadas (denylist/critical).")
 	}
 
 	// Modo no interactivo: enviar prompt y salir
@@ -346,6 +423,73 @@ func runDoctor(asJSON bool) error {
 			}
 		} else {
 			fmt.Println("\nTodo se ve correcto. ¡Listo para usar!")
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%d problema(s) detectado(s)", len(problems))
+	}
+	return nil
+}
+
+// Nuevo: chequeo de conectividad al LLM
+func runDoctorNetwork(asJSON bool) error {
+	var problems []string
+	var oks []string
+
+	if !asJSON {
+		fmt.Println("== Sikma Code Doctor (Network) ==")
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("configuración: no se pudo cargar (%v)", err))
+	} else {
+		oks = append(oks, "Configuración cargada")
+	}
+	if err == nil {
+		apiKey, err := cfg.GetActiveAPIKey()
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("api key: faltante o inválida (%v)", err))
+		} else {
+			oks = append(oks, "API key activa disponible")
+			p := cfg.Providers[cfg.ActiveLLM]
+			if cfg.ActiveLLM == "" || strings.TrimSpace(p.Model) == "" {
+				problems = append(problems, "provider/modelo: configure --provider y --model")
+			} else {
+				ag := agent.NewAgent(cfg.Agent)
+				systemPrompt := ag.BuildSystemPrompt()
+				// Solicitud mínima de prueba
+				resp, err := llm.GenerateResponse(apiKey, p.Model, systemPrompt, nil, "Responde con 'pong'.")
+				if err != nil {
+					problems = append(problems, fmt.Sprintf("LLM: error de conectividad (%v)", err))
+				} else if strings.Contains(strings.ToLower(resp), "pong") || len(strings.TrimSpace(resp)) > 0 {
+					oks = append(oks, "Conectividad LLM OK")
+					if !asJSON {
+						fmt.Println("[OK] Conectividad LLM verificada")
+					}
+				} else {
+					problems = append(problems, "LLM: respuesta inesperada")
+				}
+			}
+		}
+	}
+
+	if asJSON {
+		type DoctorNetReport struct {
+			OK       []string `json:"ok"`
+			Problems []string `json:"problems"`
+		}
+		report := DoctorNetReport{OK: oks, Problems: problems}
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+	} else {
+		if len(problems) > 0 {
+			fmt.Println("\n== Problemas detectados ==")
+			for _, p := range problems {
+				fmt.Printf("- %s\n", p)
+			}
+		} else {
+			fmt.Println("\nRed OK. Proveedor y modelo responden.")
 		}
 	}
 	if len(problems) > 0 {
