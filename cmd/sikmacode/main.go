@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"encoding/json"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/djS1km4/sikmacode/internal/agent"
@@ -34,7 +35,17 @@ func main() {
 	streamFlag := flag.Bool("stream", false, "Muestra respuesta en streaming (solo con --prompt)")
 	outFlag := flag.String("out", "", "Guardar salida del prompt en archivo (por defecto ./outputs/<timestamp>.txt)")
 	logLevelFlag := flag.String("log-level", "", "Nivel de log: error|warn|info|debug")
+	doctorFlag := flag.Bool("doctor", false, "Valida el entorno (configuración, API key, provider/modelo, permisos de salida)")
+	doctorJSONFlag := flag.Bool("doctor-json", false, "Salida del doctor en JSON")
 	flag.Parse()
+
+	// Doctor: validación temprana del entorno
+	if *doctorFlag || *doctorJSONFlag {
+		if err := runDoctor(*doctorJSONFlag); err != nil {
+			stdlog.Fatalf("doctor reporta errores: %v", err)
+		}
+		return
+	}
 
 	// --debug / --log-level: habilitar salida de log por stdout
 	if *debugFlag || strings.ToLower(*logLevelFlag) == "debug" {
@@ -254,4 +265,91 @@ func copyFile(src, dst string) error {
 	defer d.Close()
 	_, err = io.Copy(d, s)
 	return err
+}
+
+func runDoctor(asJSON bool) error {
+	var problems []string
+	var oks []string
+
+	if !asJSON {
+		fmt.Println("== Sikma Code Doctor ==")
+	}
+	// Config
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("configuración: no se pudo cargar (%v)", err))
+	} else {
+		oks = append(oks, "Configuración cargada")
+		if !asJSON {
+			fmt.Println("[OK] Configuración cargada")
+		}
+	}
+	// API Key
+	if err == nil {
+		if _, err := cfg.GetActiveAPIKey(); err != nil {
+			problems = append(problems, fmt.Sprintf("api key: faltante o inválida (%v)", err))
+		} else {
+			oks = append(oks, "API key activa disponible")
+			if !asJSON {
+				fmt.Println("[OK] API key activa disponible")
+			}
+		}
+	}
+	// Provider / Model
+	if err == nil {
+		p := cfg.Providers[cfg.ActiveLLM]
+		if cfg.ActiveLLM == "" {
+			problems = append(problems, "provider: no configurado (use --provider)")
+		} else {
+			oks = append(oks, fmt.Sprintf("Provider activo: %s", cfg.ActiveLLM))
+			if !asJSON {
+				fmt.Printf("[OK] Provider activo: %s\n", cfg.ActiveLLM)
+			}
+		}
+		if strings.TrimSpace(p.Model) == "" {
+			problems = append(problems, "modelo: vacío (use --model)")
+		} else {
+			oks = append(oks, fmt.Sprintf("Modelo activo: %s", p.Model))
+			if !asJSON {
+				fmt.Printf("[OK] Modelo activo: %s\n", p.Model)
+			}
+		}
+	}
+	// Salida (permisos)
+	outDir := filepath.Join(".", "outputs")
+	_ = os.MkdirAll(outDir, 0o755)
+	probe := filepath.Join(outDir, "doctor-probe.txt")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		problems = append(problems, fmt.Sprintf("outputs: no se pudo escribir en %s (%v)", outDir, err))
+	} else {
+		oks = append(oks, fmt.Sprintf("Permisos de escritura en %s", outDir))
+		if !asJSON {
+			fmt.Printf("[OK] Permisos de escritura en %s\n", outDir)
+		}
+		_ = os.Remove(probe)
+	}
+
+	// Resumen
+	if asJSON {
+		type DoctorReport struct {
+			OK       []string `json:"ok"`
+			Problems []string `json:"problems"`
+		}
+		report := DoctorReport{OK: oks, Problems: problems}
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+	} else {
+		if len(problems) > 0 {
+			fmt.Println("\n== Problemas detectados ==")
+			for _, p := range problems {
+				fmt.Printf("- %s\n", p)
+			}
+		} else {
+			fmt.Println("\nTodo se ve correcto. ¡Listo para usar!")
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%d problema(s) detectado(s)", len(problems))
+	}
+	return nil
 }

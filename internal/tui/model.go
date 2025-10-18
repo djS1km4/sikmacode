@@ -800,7 +800,7 @@ func randomBar(n int) string {
 
 // Nuevo: comando tick para precarga alfanumérica
 func (m *appModel) preloadTickCmd() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return preloadTickMsg{ text: randomAlphaNum(16) }
 	})
 }

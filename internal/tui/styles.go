@@ -41,7 +41,7 @@ func DefaultStyles() Styles {
 		DividerStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")),
 		LoadingStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
+			Foreground(lipgloss.Color("248")).
 			Italic(true),
 	}
 }
