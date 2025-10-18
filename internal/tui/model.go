@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"encoding/json"
 
 	"github.com/djS1km4/sikmacode/internal/llm"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -17,6 +18,12 @@ import (
 // completionMsg es el mensaje que se recibe cuando el LLM completa una respuesta.
 type completionMsg struct{
 	content string
+}
+
+// sessionEntry representa una entrada simple de sesión para persistencia en JSON.
+type sessionEntry struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // errorMsg es el mensaje para los errores que puedan ocurrir.
@@ -62,7 +69,7 @@ API Key detectada. Escribe un mensaje para comenzar.`)
 	// Inicializa el renderer Markdown de Glamour a partir del entorno.
 	r, _ := glamour.NewTermRenderer(glamour.WithEnvironmentConfig())
 
-	return Model{
+	m := Model{
 		textarea: ta,
 		viewport: vp,
 		styles:   styles,
@@ -70,6 +77,22 @@ API Key detectada. Escribe un mensaje para comenzar.`)
 		messages: make([]*genai.Content, 0),
 		renderer: r,
 	}
+
+	// Carga sesión desde sessions/default.json si existe
+	if data, err := os.ReadFile("sessions/default.json"); err == nil {
+		var entries []sessionEntry
+		if jsonErr := json.Unmarshal(data, &entries); jsonErr == nil {
+			for _, e := range entries {
+				m.messages = append(m.messages, &genai.Content{
+					Role:  e.Role,
+					Parts: []genai.Part{genai.Text(e.Content)},
+				})
+			}
+			m.updateViewport()
+		}
+	}
+
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -108,10 +131,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case completionMsg:
 		m.messages = append(m.messages, &genai.Content{
-			Parts: []genai.Part{genai.Text(msg.content)},
-			Role:  "model",
-		})
-		m.updateViewport()
+		Parts: []genai.Part{genai.Text(msg.content)},
+		Role:  "model",
+	})
+	m.updateViewport()
+	m.saveSession()
 
 	case errorMsg:
 		m.err = msg
@@ -132,9 +156,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Role:  "user",
 			})
 			m.updateViewport()
-			m.textarea.Reset()
-			// Esperar la respuesta del LLM, pasando el input del usuario por separado.
-			return m, m.waitForCompletion(userInput)
+	m.saveSession()
+	m.textarea.Reset()
+	// Esperar la respuesta del LLM, pasando el input del usuario por separado.
+	return m, m.waitForCompletion(userInput)
 		}
 	}
 
@@ -167,6 +192,22 @@ func (m *Model) updateViewport() {
 		m.viewport.SetContent(md.String())
 	}
 	m.viewport.GotoBottom()
+}
+
+func (m *Model) saveSession() {
+	entries := make([]sessionEntry, 0, len(m.messages))
+	for _, c := range m.messages {
+		var content string
+		if len(c.Parts) > 0 {
+			if txt, ok := c.Parts[0].(genai.Text); ok {
+				content = string(txt)
+			}
+		}
+		entries = append(entries, sessionEntry{Role: c.Role, Content: content})
+	}
+	if data, err := json.MarshalIndent(entries, "", "  "); err == nil {
+		_ = os.WriteFile("sessions/default.json", data, 0644)
+	}
 }
 
 func (m Model) View() string {
